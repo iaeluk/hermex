@@ -1,0 +1,115 @@
+{
+  "aliases": {
+    "Apply": "Save",
+    "Allow once": "Approve",
+    "Binary file changed.": "Binary file changed",
+    "Branch list unavailable.": "Changes unavailable",
+    "Branch Session": "Branch",
+    "Bot Name": "Name",
+    "Cached sessions and messages are scoped to the active server for offline viewing.": "Cached sessions and messages are kept for offline viewing. Clearing removes this server's cache only — other servers and the Hermes server are not affected.",
+    "Clarification needed": "Clarification Required",
+    "Clear all messages? This cannot be undone.": "Clear the current conversation",
+    "Clear Offline Cache?": "Clear Offline Cache",
+    "Clear conversation": "Clear the current conversation",
+    "Connect to a server to manage active-server settings.": "Active Server",
+    "Close task details": "Close",
+    "Create a new chat or clear search filters.": "Try another search or project filter.",
+    "Create and switch": "Create",
+    "Custom Header Color": "Header Logo Color",
+    "Custom Headers": "Connection Headers",
+    "Default model": "Default Model",
+    "Delete task?": "Delete Task?",
+    "Diff was large; message may be partial.": "Changes unavailable",
+    "Discard changes?": "Discard Later Messages?",
+    "Edit Identity": "Identity",
+    "Export HTML": "Export as HTML",
+    "Export JSON": "Export as JSON",
+    "Forget Server?": "Remove Server",
+    "Forget": "Remove Server",
+    "Generate": "Create",
+    "Go": "Continue",
+    "Go to latest message": "Scroll to latest message",
+    "Header Color": "Header Logo Color",
+    "Hex color": "Color",
+    "Image preview could not be loaded.": "Could Not Preview Image",
+    "Lowercase letters, numbers, hyphens, and underscores.": "Lowercase letters, numbers, hyphens, and underscores; must start with a letter or number.",
+    "Model provider": "Provider ID",
+    "No changed files in this session workspace.": "No Changes",
+    "No changes.": "No Changes",
+    "No diff selected.": "No Changes",
+    "No matching models.": "No Matching Models",
+    "No matching profiles.": "No Matching Profiles",
+    "No models returned by the server.": "No catalog models",
+    "No profiles returned by the server.": "No profile yet.",
+    "No scheduled tasks.": "No Results",
+    "No servers configured.": "Manage Servers",
+    "No sessions match this view.": "No matching sessions",
+    "Optional": "Not set",
+    "Optional title": "Session title",
+    "Push after commit": "Push Local Commits?",
+    "Push branch?": "Push Local Commits?",
+    "Preview": "Link preview",
+    "Refreshing live models...": "Loading models...",
+    "Refreshing panels": "Refreshing...",
+    "Run": "Run Now",
+    "Save As": "Save",
+    "Save changes and switch?": "Stash & Switch",
+    "Save and switch": "Stash & Switch",
+    "Send the new commit to the upstream remote.": "Push the current branch to its configured upstream remote?",
+    "Server Identity": "Identity",
+    "Session": "Sessions",
+    "Sign out clears this server's session cookies. The server registry remains available so you can reconnect quickly.": "Signs out of the active server and returns to onboarding.",
+    "Switch branch?": "Branch",
+    "Submit": "Send",
+    "Title": "Full Title",
+    "Toast notifications": "Toast Notifications",
+    "Type the exact model ID the server expects.": "Type a model ID exactly as the server expects it.",
+    "Use": "Done",
+    "Wrap": "Wrap Code Block Lines",
+    "Working tree clean": "The working tree is clean."
+  },
+  "platform_aliases": {
+    "Android & Shortcuts": {
+      "source": "Siri & Shortcuts",
+      "replace": {
+        "Siri": "Android"
+      }
+    },
+    "Android notifications allowed.": {
+      "source": "iOS notifications allowed.",
+      "replace": {
+        "iOS": "Android"
+      }
+    },
+    "Android notifications disabled.": {
+      "source": "iOS notifications disabled.",
+      "replace": {
+        "iOS": "Android"
+      }
+    },
+    "Chat with your Hermes agent from Android": {
+      "source": "Chat with your Hermes agent from iPhone",
+      "replace": {
+        "iPhone": "Android"
+      }
+    },
+    "Control your Hermes agent from Android.": {
+      "source": "Control your Hermes agent from iPhone or iPad.",
+      "replace": {
+        "iPhone or iPad": "Android"
+      }
+    },
+    "Get Tailscale on Google Play": {
+      "source": "Get Tailscale on the App Store",
+      "replace": {
+        "App Store": "Google Play"
+      }
+    },
+    "Your Hermes agent, reachable from Android over Tailscale.": {
+      "source": "Your Hermes agent, reachable from iPhone over Tailscale.",
+      "replace": {
+        "iPhone": "Android"
+      }
+    }
+  }
+}

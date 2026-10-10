@@ -1,0 +1,51 @@
+# Builds a debug APK on every push that touches the Android app and
+# publishes it as a downloadable artifact on the run page.
+# Run it manually from the Actions tab (workflow_dispatch) for an
+# on-demand APK.
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - android/**
+      - .github/workflows/android-apk.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --console=plain
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: hermex-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -1,0 +1,216 @@
+# Contributor CI: build and run the full XCTest suite on every pull request
+# that touches app code. Docs-only PRs (markdown, docs/, community files) skip
+# the macOS runner entirely and pass via the cheap gate job.
+#
+# The required branch-protection check is "CI Gate", not "Build and Test":
+# a skipped required check would block merges forever, so the gate always
+# runs and passes when the suite either succeeded or was legitimately skipped.
+#
+# Uses no repository secrets, so PRs from forks get green CI too.
+#
+# Code signing is disabled (CODE_SIGNING_ALLOWED=NO) — fine for compile/test
+# runs per TESTFLIGHT.md; the "simulator installs must be signed" rule applies
+# to manual simulator testing, not CI.
+
+name: PR CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_ios: ${{ steps.filter.outputs.run_ios }}
+    steps:
+      - name: Classify changed files
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          files=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[].filename')
+          echo "Changed files:"
+          echo "${files}"
+          # Fail closed: anything NOT on the docs-only allowlist triggers the
+          # full suite (including workflow, project, and config changes).
+          non_docs=$(echo "${files}" | grep -vE '^(docs/.*|LICENSE|\.gitignore|\.github/ISSUE_TEMPLATE/.*|\.github/CODEOWNERS|\.github/dependabot\.yml|\.github/FUNDING\.yml|.*\.md)$' || true)
+          if [[ -n "${non_docs}" ]]; then
+            echo "Non-docs changes detected — running the full suite:"
+            echo "${non_docs}"
+            echo "run_ios=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Docs-only change — skipping the macOS runner."
+            echo "run_ios=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: Build and Test
+    needs: changes
+    if: needs.changes.outputs.run_ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    env:
+      PROJECT_PATH: HermesMobile.xcodeproj
+      SCHEME: HermesMobile
+      DERIVED_DATA_PATH: DerivedData
+      RESULT_BUNDLE_PATH: TestResults.xcresult
+      TEST_WORKER_COUNT: 1
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Select simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          name=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          phones = [
+              device["name"]
+              for runtime, devices in data["devices"].items()
+              if "iOS" in runtime
+              for device in devices
+              if device.get("isAvailable") and device["name"].startswith("iPhone")
+          ]
+          preferred = "iPhone 17"
+          print(preferred if preferred in phones else phones[0] if phones else "")
+          ')
+          if [[ -z "${name}" ]]; then
+            echo "No available iPhone simulator found:" >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+          echo "Using simulator: ${name}"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Build for testing
+        env:
+          SIMULATOR_NAME: ${{ steps.sim.outputs.name }}
+        run: |
+          set -euo pipefail
+          start_seconds=${SECONDS}
+          xcodebuild build-for-testing \
+            -project "${PROJECT_PATH}" \
+            -scheme "${SCHEME}" \
+            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
+            -derivedDataPath "${DERIVED_DATA_PATH}" \
+            -showBuildTimingSummary \
+            CODE_SIGNING_ALLOWED=NO
+          duration_seconds=$((SECONDS - start_seconds))
+          echo "Build-for-testing duration: ${duration_seconds}s"
+          echo "### PR CI timing" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- Build for testing: ${duration_seconds}s" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Test without building
+        env:
+          SIMULATOR_NAME: ${{ steps.sim.outputs.name }}
+        run: |
+          set -euo pipefail
+          start_seconds=${SECONDS}
+          xcodebuild test-without-building \
+            -project "${PROJECT_PATH}" \
+            -scheme "${SCHEME}" \
+            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
+            -derivedDataPath "${DERIVED_DATA_PATH}" \
+            -resultBundlePath "${RESULT_BUNDLE_PATH}" \
+            -parallel-testing-enabled YES \
+            -parallel-testing-worker-count "${TEST_WORKER_COUNT}" \
+            CODE_SIGNING_ALLOWED=NO
+          duration_seconds=$((SECONDS - start_seconds))
+          echo "Test-without-building duration: ${duration_seconds}s"
+          echo "- Test without building (${TEST_WORKER_COUNT} workers): ${duration_seconds}s" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Report slowest tests
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [[ ! -d "${RESULT_BUNDLE_PATH}" ]]; then
+            echo "No result bundle is available; skipping slow-test reporting."
+            exit 0
+          fi
+
+          xcrun xcresulttool get test-results tests \
+            --path "${RESULT_BUNDLE_PATH}" \
+            --compact > test-results.json
+
+          python3 - <<'PY' | tee slowest-tests.txt
+          import json
+
+          with open("test-results.json", encoding="utf-8") as results_file:
+              results = json.load(results_file)
+
+          tests = []
+
+          def visit(node, parents):
+              name = node.get("name", "<unnamed>")
+              node_type = node.get("nodeType")
+              path = [*parents, name]
+              duration = node.get("durationInSeconds")
+              if node_type == "Test Case" and isinstance(duration, (int, float)):
+                  tests.append((duration, " / ".join(path)))
+              for child in node.get("children", []):
+                  visit(child, path)
+
+          for root in results.get("testNodes", []):
+              visit(root, [])
+
+          print("Slowest test cases:")
+          for duration, name in sorted(tests, reverse=True)[:20]:
+              print(f"{duration:8.3f}s  {name}")
+          PY
+
+          {
+            echo ""
+            echo "#### Slowest test cases"
+            echo '```text'
+            cat slowest-tests.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: ${{ env.RESULT_BUNDLE_PATH }}
+          if-no-files-found: ignore
+
+  gate:
+    name: CI Gate
+    needs: [changes, test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check results
+        run: |
+          set -euo pipefail
+          echo "changes: ${{ needs.changes.result }}"
+          echo "test: ${{ needs.test.result }}"
+          if [[ "${{ needs.changes.result }}" != "success" ]]; then
+            echo "Path detection failed — failing the gate." >&2
+            exit 1
+          fi
+          case "${{ needs.test.result }}" in
+            success|skipped) echo "Gate passed." ;;
+            *) echo "Build and Test did not pass — failing the gate." >&2; exit 1 ;;
+          esac

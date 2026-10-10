@@ -1,0 +1,81 @@
+# Xcode
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+Package.resolved
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Local secrets
+.env
+.env.local
+.env.*.local
+
+# Per-machine signing overrides (see CONTRIBUTING.md)
+Config/Local.xcconfig
+
+# Local reference material
+UPDATES.md
+.obsidian/
+/ios_hermex_reference_images/
+/ios-hermex-reference-images/
+
+# Local agent tooling (per-machine caches, skills, session state)
+node_modules/
+.codex-remote-attachments/
+.codex-tmp/
+.agents/
+.sc/
+.claude/
+.codegraph/
+.codex/
+.cursor/
+
+# App packaging
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Android
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/app/build/
+android/build/
+android/artifacts/
+android/*.jks
+android/*.keystore
+android/keystore.properties
+android/play-service-account.json
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+android/fastlane/report.xml
+android/fastlane/Preview.html
+android/fastlane/screenshots/**/*.png
+android/fastlane/test_output/
+
+# Pi tooling artifacts (review outputs, fix plans, etc.)
+.pi/
+
+# Editor swap/temp files
+*.swp
+*.swo
+*~
+
+# Retired per-session progress log (removed in #224; history lives in git log / merged PRs)
+/PROGRESS.md
+
+# Local session-handoff state (read at session start, overwritten at wrap-up; not tracked)
+/CURRENT.md

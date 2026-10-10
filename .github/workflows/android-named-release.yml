@@ -1,0 +1,172 @@
+name: Android Named Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Git tag to create, for example android-v0.2.0"
+        required: true
+        type: string
+      release_name:
+        description: "Human-readable release name"
+        required: true
+        type: string
+      prerelease:
+        description: "Publish as a prerelease"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-named-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android-artifacts:
+    name: Android Artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      version_name: ${{ steps.release_identity.outputs.version_name }}
+      version_code: ${{ steps.release_identity.outputs.version_code }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Validate release identity
+        id: release_identity
+        run: |
+          set -euo pipefail
+          version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"/\1/p' android/app/build.gradle.kts)"
+          version_code="$(sed -n 's/^[[:space:]]*versionCode = \([0-9][0-9]*\)/\1/p' android/app/build.gradle.kts)"
+          expected_tag="android-v${version_name}"
+          if [ -z "$version_name" ] || [ -z "$version_code" ]; then
+            echo "Could not read Android version identity"
+            exit 1
+          fi
+          if [ "${{ inputs.tag_name }}" != "$expected_tag" ]; then
+            echo "Tag must be $expected_tag for versionName $version_name"
+            exit 1
+          fi
+          echo "ANDROID_VERSION_NAME=$version_name" >> "$GITHUB_ENV"
+          echo "ANDROID_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+
+      - name: Verify endpoint parity
+        run: python3 ci/endpoint_parity.py
+
+      - name: Verify localization catalog parity
+        run: |
+          python3 ci/generate_android_localization_catalog.py --check
+          python3 ci/migrate_android_compose_literals.py --check
+
+      - name: Prepare Android release signing
+        env:
+          HERMEX_ANDROID_KEYSTORE_BASE64: ${{ secrets.HERMEX_ANDROID_KEYSTORE_BASE64 }}
+          HERMEX_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.HERMEX_ANDROID_KEYSTORE_PASSWORD }}
+          HERMEX_ANDROID_KEY_ALIAS: ${{ secrets.HERMEX_ANDROID_KEY_ALIAS }}
+          HERMEX_ANDROID_KEY_PASSWORD: ${{ secrets.HERMEX_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in \
+            HERMEX_ANDROID_KEYSTORE_BASE64 \
+            HERMEX_ANDROID_KEYSTORE_PASSWORD \
+            HERMEX_ANDROID_KEY_ALIAS \
+            HERMEX_ANDROID_KEY_PASSWORD; do
+            if [ -z "${!value:-}" ]; then
+              echo "Missing required signing secret: $value"
+              exit 1
+            fi
+          done
+          keystore_path="$RUNNER_TEMP/hermex-android-release.jks"
+          printf '%s' "$HERMEX_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "HERMEX_ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEYSTORE_PASSWORD=$HERMEX_ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEY_ALIAS=$HERMEX_ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEY_PASSWORD=$HERMEX_ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Test and build Android artifacts
+        working-directory: android
+        run: ./gradlew testDebugUnitTest lintRelease pixel2api35DebugAndroidTest assembleRelease bundleRelease
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: hermex-android-artifacts
+          if-no-files-found: error
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/bundle/release/app-release.aab
+
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: android-artifacts
+    steps:
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: hermex-android-artifacts
+          path: dist
+
+      - name: Create release notes
+        env:
+          ANDROID_VERSION_NAME: ${{ needs.android-artifacts.outputs.version_name }}
+          ANDROID_VERSION_CODE: ${{ needs.android-artifacts.outputs.version_code }}
+        run: |
+          cat > release-notes.md <<EOF
+          Hermex ${ANDROID_VERSION_NAME} native Android release artifacts (version code ${ANDROID_VERSION_CODE}).
+
+          The APK and AAB are signed with the permanent Hermex release key. Keep using
+          this signing identity for every future update.
+
+          Upgrade note: ${ANDROID_VERSION_NAME} installs directly over production-signed 1.0.x builds.
+          GitHub APKs from 0.2.7 and earlier used a debug signature and may still require
+          uninstalling the old app once before installing this release.
+
+          This release was gated by:
+          - iOS/Android endpoint parity
+          - Android localization catalog parity
+          - Android unit tests
+          - Android API 35 managed-device tests
+          - Android release lint
+          - production-signed release APK and AAB builds
+          EOF
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE_FLAG: ${{ inputs.prerelease && '--prerelease' || '' }}
+        run: |
+          set -euo pipefail
+          mapfile -t release_assets < <(find dist -type f | sort)
+          if [ "${#release_assets[@]}" -eq 0 ]; then
+            echo "No release assets found in dist"
+            exit 1
+          fi
+          gh release create "${{ inputs.tag_name }}" "${release_assets[@]}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ inputs.release_name }}" \
+            --notes-file release-notes.md \
+            $PRERELEASE_FLAG
