@@ -124,7 +124,7 @@ jobs:
     needs: android-artifacts
     steps:
       - name: Download Android artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: hermex-android-artifacts
           path: dist
