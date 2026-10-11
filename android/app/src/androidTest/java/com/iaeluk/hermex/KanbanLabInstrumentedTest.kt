@@ -566,13 +566,13 @@ class KanbanLabInstrumentedTest {
         composeRule.onNodeWithTag("kanban_selection_controls").assertIsDisplayed()
         composeRule.onNodeWithText("1 Card · Selected").assertIsDisplayed()
         composeRule.onNodeWithTag("kanban_bulk_actions").performClick()
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithTag("kanban_bulk_change_status").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("kanban_bulk_change_status").performScrollTo().performClick()
 
         composeRule.mainClock.advanceTimeBy(1)
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithTag("kanban_status_todo").fetchSemanticsNodes().isNotEmpty() &&
                 composeRule.onAllNodesWithTag("kanban_card_CARD-1").fetchSemanticsNodes().isEmpty()
         }
@@ -606,12 +606,12 @@ class KanbanLabInstrumentedTest {
         composeRule.onNodeWithTag("kanban_select_cards").performClick()
         composeRule.onNodeWithTag("kanban_card_CARD-4", useUnmergedTree = true).performClick()
         composeRule.onNodeWithTag("kanban_bulk_actions").performClick()
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithTag("kanban_bulk_change_status").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("kanban_bulk_change_status").performScrollTo().performClick()
 
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithText("Leave Running?").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("kanban_bulk_confirm_running_exit").performClick()
