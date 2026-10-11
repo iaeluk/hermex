@@ -557,7 +557,17 @@ fun SettingsRoute(
             }
             item {
                 SettingsSection(title = "Active Server") {
+                    val activeKind = loggedIn?.account?.kind
                     when {
+                        activeKind == com.iaeluk.hermex.data.secure.ServerKind.HERMES -> {
+                            DetailLine(localizedString("Status"), "Connected (Bot Mode)")
+                            DetailLine(localizedString("URL"), loggedIn?.server?.toString() ?: "Not configured")
+                            Text(
+                                "This Hermes host is signed in through Bot Mode. Open Bots from sessions to chat.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                            )
+                        }
                         panelsRepository == null -> Text(localizedString("Connect to a server to manage active-server settings."), style = MaterialTheme.typography.bodySmall)
                         state.isLoadingServerSettings -> CircularProgressIndicator(strokeWidth = 2.dp)
                         else -> {

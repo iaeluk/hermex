@@ -680,12 +680,14 @@ fun HermexApp(
                     route = "settings",
                     deepLinks = listOf(navDeepLink { uriPattern = ShortcutDestination.SettingsUri }),
                 ) {
+                    val account = (authState as? AuthState.LoggedIn)?.account
                     val server = (authState as? AuthState.LoggedIn)?.server
                     SettingsRoute(
                         authRepository = container.authRepository,
                         localSettingsRepository = container.localSettingsRepository,
                         cacheMaintenanceRepository = container.cacheMaintenanceRepository,
-                        panelsRepository = server?.let { container.panelsRepository(it) },
+                        panelsRepository = if (account?.kind == ServerKind.HERMES) null
+                            else server?.let { container.panelsRepository(it) },
                         authState = authState,
                         onBack = { navController.popBackStack() },
                         onOpenArchivedSessions = { navController.navigateSingleTop("sessions?showArchived=true") },
