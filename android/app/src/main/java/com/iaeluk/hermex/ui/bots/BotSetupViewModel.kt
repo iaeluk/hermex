@@ -60,6 +60,10 @@ class BotSetupViewModel(
     private val _state = MutableStateFlow(BotSetupUiState())
     val state: StateFlow<BotSetupUiState> = _state
 
+    /** The registry id saved by the last successful connect, for navigation. */
+    private var _savedServerId: String? = null
+    val savedServerId: String? get() = _savedServerId
+
     fun updateAddress(text: String) {
         _state.value = _state.value.copy(addressText = text, address = null, addressError = null, error = null, hostStatus = null)
     }
@@ -203,6 +207,7 @@ class BotSetupViewModel(
                 }
             val account = registry.activate(url, displayName = record.name, kind = ServerKind.HERMES)
             botStore.save(account.id, record)
+            _savedServerId = account.id
             _state.value = _state.value.copy(isWorking = false, step = BotSetupStep.DONE)
             return true
         } catch (error: Throwable) {

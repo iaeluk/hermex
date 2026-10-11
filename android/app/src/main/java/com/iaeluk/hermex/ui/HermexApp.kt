@@ -44,6 +44,10 @@ import androidx.navigation.navArgument
 import com.iaeluk.hermex.AppContainer
 import com.iaeluk.hermex.BuildConfig
 import com.iaeluk.hermex.data.repository.AuthState
+import com.iaeluk.hermex.data.secure.ServerKind
+import com.iaeluk.hermex.ui.bots.BotsChatScreen
+import com.iaeluk.hermex.ui.bots.BotsHomeList
+import com.iaeluk.hermex.ui.bots.BotsSetupScreen
 import com.iaeluk.hermex.ui.chat.ChatRoute
 import com.iaeluk.hermex.ui.git.GitRoute
 import com.iaeluk.hermex.ui.kanban.KanbanLabRoute
@@ -78,6 +82,9 @@ fun HermexApp(
     )
     val hapticsEnabled by container.localSettingsRepository.hapticsEnabled.collectAsStateWithLifecycle(
         initialValue = true,
+    )
+    val botModeEnabled by container.localSettingsRepository.botModeEnabled.collectAsStateWithLifecycle(
+        initialValue = false,
     )
     val localHeaderLogoColorHex by container.localSettingsRepository.headerLogoColorHex.collectAsStateWithLifecycle(
         initialValue = "#FFD700",
@@ -323,8 +330,22 @@ fun HermexApp(
                         selectedConsumesShare = consumeShare
                         selectedAutoStartsVoice = autoStartVoice
                     }
+                    val isHermesServer = activeAccount?.kind == ServerKind.HERMES
                     val sessionList: @Composable () -> Unit = {
-                        SessionListRoute(
+                        if (isHermesServer) {
+                            BotsHomeList(
+                                authState = authState,
+                                container = container,
+                                onOpenChat = { profile ->
+                                    if (usesRegularWidthLayout) selectSession(profile, false, false)
+                                    else navController.navigateSingleTop("bots-chat/$profile")
+                                },
+                                onOpenSettings = { navController.navigateSingleTop("settings") },
+                                onOpenSetup = { navController.navigateSingleTop("bots-setup") },
+                                onBack = {},
+                            )
+                        } else {
+                            SessionListRoute(
                             authState = authState,
                             container = container,
                             shortcutAction = shortcutAction,
@@ -354,6 +375,7 @@ fun HermexApp(
                                 }
                             },
                         )
+                        }
                     }
                     if (!usesRegularWidthLayout) {
                         sessionList()
@@ -370,7 +392,14 @@ fun HermexApp(
                                 }
                             },
                             detail = {
-                                if (server != null && detailSessionId != null) {
+                                if (activeAccount?.kind == ServerKind.HERMES && detailSessionId != null) {
+                                    BotsChatScreen(
+                                        container = container,
+                                        serverId = activeServerKey ?: "",
+                                        profile = detailSessionId,
+                                        onBack = { selectedSessionId = null },
+                                    )
+                                } else if (server != null && detailSessionId != null) {
                                     ChatRoute(
                                         sessionId = detailSessionId,
                                         serverId = activeServerKey ?: server.toString(),
@@ -440,6 +469,41 @@ fun HermexApp(
                                 navController.navigate("git/${requireNotNull(entry.arguments?.getString("sessionId"))}")
                             },
                         )
+                    }
+                }
+                composable(
+                    route = "bots-setup",
+                ) {
+                    val setupScope = rememberCoroutineScope()
+                    BotsSetupScreen(
+                        container = container,
+                        onDone = { serverId ->
+                            setupScope.launch {
+                                runCatching { container.authRepository.activate(serverId) }
+                                navController.navigate("sessions") {
+                                    popUpTo(navController.graph.id) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            }
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(
+                    route = "bots-chat/{profile}",
+                    arguments = listOf(navArgument("profile") { type = NavType.StringType }),
+                ) { entry ->
+                    val account = (authState as? AuthState.LoggedIn)?.account
+                    val profile = entry.arguments?.getString("profile")
+                    if (account?.kind == ServerKind.HERMES && profile != null) {
+                        BotsChatScreen(
+                            container = container,
+                            serverId = account.id,
+                            profile = profile,
+                            onBack = { navController.popBackStack() },
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
                     }
                 }
                 composable(
@@ -527,6 +591,7 @@ fun HermexApp(
                         authState = authState,
                         onBack = { navController.popBackStack() },
                         onOpenArchivedSessions = { navController.navigateSingleTop("sessions?showArchived=true") },
+                        onOpenBotsSetup = { navController.navigateSingleTop("bots-setup") },
                         onSignedOut = {
                             navController.navigate("onboarding") {
                                 popUpTo(navController.graph.id) { inclusive = true }

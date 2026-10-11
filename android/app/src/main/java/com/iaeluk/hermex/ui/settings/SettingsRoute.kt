@@ -123,6 +123,7 @@ fun SettingsRoute(
     authState: AuthState,
     onBack: () -> Unit,
     onOpenArchivedSessions: () -> Unit = {},
+    onOpenBotsSetup: () -> Unit = {},
     onSignedOut: () -> Unit,
 ) {
     val activeServerKey = (authState as? AuthState.LoggedIn)?.server?.toString() ?: "disconnected"
@@ -312,6 +313,15 @@ fun SettingsRoute(
                     responseCompletionNotificationStatusText(state, context)?.let { SettingsFootnote(it) }
                     SettingsDivider()
                     SettingsToggleRow(
+                        label = localizedString("Bot Mode (direct Hermes)"),
+                        iconRes = com.iaeluk.hermex.R.drawable.ic_hermex_message_arrow,
+                        value = state.botModeEnabled,
+                        onValueChange = viewModel::setBotModeEnabled,
+                        switchTestTag = "settings_bot_mode",
+                    )
+                    SettingsFootnote("Connect directly to a hermes-agent host, alongside webui servers. Beta.")
+                    SettingsDivider()
+                    SettingsToggleRow(
                         label = localizedString("Show Response Excerpts"),
                         iconRes = com.iaeluk.hermex.R.drawable.ic_hermex_bell,
                         value = state.chatDisplaySettings.showsStatusNotificationResponseExcerpts,
@@ -482,6 +492,7 @@ fun SettingsRoute(
                             ServerAccountRow(
                                 displayName = account.displayName,
                                 url = account.urlString,
+                                badge = if (account.kind == com.iaeluk.hermex.data.secure.ServerKind.HERMES) "Hermes" else null,
                                 initials = account.initials,
                                 headerColorHex = account.headerLogoColorHex,
                                 isActive = account.id == state.serverSnapshot.activeServerId,
@@ -502,6 +513,15 @@ fun SettingsRoute(
                         filled = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    if (state.botModeEnabled) {
+                        Spacer(Modifier.height(9.dp))
+                        HermexPillButton(
+                            label = "Connect Hermes host",
+                            onClick = onOpenBotsSetup,
+                            filled = false,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     Spacer(Modifier.height(9.dp))
                     Text(
                         localizedString("Server URLs, custom headers, and cookies are stored in Android encrypted storage."),
@@ -741,6 +761,7 @@ private fun Modifier.settingsDialogChrome(): Modifier = hermexGlass(
 private fun ServerAccountRow(
     displayName: String,
     url: String,
+    badge: String? = null,
     initials: String,
     headerColorHex: String,
     isActive: Boolean,
@@ -763,7 +784,16 @@ private fun ServerAccountRow(
                 modifier = Modifier.size(34.dp),
             )
             Column(Modifier.weight(1f)) {
-                Text(displayName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(displayName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    badge?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 Text(url, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
             }
             HermexPillButton(
