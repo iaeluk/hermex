@@ -45,6 +45,7 @@ import kotlin.coroutines.resume
  */
 class HermesConnection(
     val connection: BotConnection,
+    private val gatewayOptions: HermesGateway.Options = HermesGateway.Options(),
 ) {
     /** 15 seconds per request and 30 overall, like the gateway's own calls; 120/180 for provisioning work. */
     enum class Deadline { STANDARD, PROVISIONING }
@@ -102,7 +103,17 @@ class HermesConnection(
      * use and kept while a screen holds it.
      */
     val gateway: HermesGateway
-        get() = liveGateway ?: HermesGateway(this).also { liveGateway = it }
+        get() = liveGateway ?: HermesGateway(this, gatewayOptions).also { liveGateway = it }
+
+    /** Closes the live gateway socket silently when one exists; never opens one. */
+    fun closeGatewayForBackground() {
+        liveGateway?.closeForBackground()
+    }
+
+    /** Drops the live gateway socket as lost when one exists, so screens reconnect now. */
+    fun dropGatewaySocket() {
+        liveGateway?.dropSocket()
+    }
 
     /** Opens one gateway socket on this connection's client, so its cookies and headers ride the upgrade. */
     internal fun openGatewaySocket(request: Request): BotSocket = OkHttpBotSocket.open(standardClient, request)

@@ -49,7 +49,8 @@ class ServerRegistrySafetyTest {
     }
 }
 
-private class MutableSecretStore(
+/** Shared in-memory [SecretStore] for the secure-storage tests. */
+internal class MutableSecretStore(
     val values: MutableMap<String, String> = mutableMapOf(),
 ) : SecretStore {
     override fun getString(key: String): String? = values[key]

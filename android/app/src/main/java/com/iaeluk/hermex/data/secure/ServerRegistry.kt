@@ -10,12 +10,19 @@ import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl
 
 @Serializable
+enum class ServerKind {
+    WEBUI,
+    HERMES,
+}
+
+@Serializable
 data class ServerAccount(
     val id: String,
     val urlString: String,
     val displayName: String,
     val initials: String,
     val headerLogoColorHex: String = "#FFD700",
+    val kind: ServerKind = ServerKind.WEBUI,
     val customHeadersRef: String? = id,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
     val updatedAtEpochMillis: Long = createdAtEpochMillis,

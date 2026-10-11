@@ -5,13 +5,18 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
+import kotlinx.serialization.Serializable
 
 /**
  * One direct-Hermes connection record: the dashboard root, credentials and the optional
  * Connection Headers a proxy in front of the host needs. The install id is the host's
  * public identity, trusted on first use and then a guard against an address that now
  * reaches a different host.
+ *
+ * Serializable so the per-server store keeps it in the encrypted secret storage, like
+ * the iOS port's keychain record. Never the webui's custom headers.
  */
+@Serializable
 data class BotConnection(
     val id: String,
     var name: String,
