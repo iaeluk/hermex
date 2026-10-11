@@ -154,6 +154,12 @@ class AuthRepository(
         val restored = withSecureStorage {
             if (accountSelectionGeneration.get() != selectionGeneration) return@withSecureStorage restoreState()
             registry.setActive(id)
+            // Bot Mode owns Hermes auth: a stale logged-out flag (written before
+            // webui rejections stopped touching Hermes servers) must not strand
+            // the account on the webui onboarding screen.
+            if (registry.snapshot.value.servers.firstOrNull { it.id == id }?.kind == ServerKind.HERMES) {
+                registry.setLoggedOut(id, false)
+            }
             restoreState()
         }
         if (accountSelectionGeneration.get() == selectionGeneration) _state.value = restored
@@ -186,6 +192,7 @@ class AuthRepository(
 
     suspend fun logout() {
         val server = (_state.value as? AuthState.LoggedIn)?.server ?: return
+        if (isHermesServer(server)) return
         val generation = advanceAuthGeneration(server)
         withAuthMutation(server) {
             if (currentAuthGeneration(server) != generation) return@withAuthMutation
@@ -345,6 +352,9 @@ class AuthRepository(
     private fun restoreState(): AuthState {
         val account = registry.activeServer() ?: return AuthState.Unconfigured
         val url = runCatching { account.urlString.toHttpUrl() }.getOrNull() ?: return AuthState.Unconfigured
+        // Hermes accounts carry no webui session: logged-out is meaningless for
+        // them, and onboarding cannot sign them back in (it is webui-only).
+        if (account.kind == ServerKind.HERMES) return AuthState.LoggedIn(url, account)
         return if (registry.isLoggedOut(account.id)) AuthState.LoggedOut(url) else AuthState.LoggedIn(url, account)
     }
 

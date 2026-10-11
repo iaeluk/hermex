@@ -75,6 +75,54 @@ class AuthHermesGuardTest {
     }
 
     @Test
+    fun staleLoggedOutFlagDoesNotStrandHermesOnSwitch() = runBlocking {
+        val secretStore = GuardMemoryStore()
+        val registry = ServerRegistry(secretStore)
+        val url = "http://100.123.21.106:9119/".toHttpUrl()
+        val account = registry.activate(url, displayName = "hermes", kind = ServerKind.HERMES)
+        // The old logout loop wrote this before webui rejections were guarded.
+        registry.setLoggedOut(account.id, true)
+        val repository = repository(registry, secretStore, explodingClient())
+
+        repository.activate(account.id)
+
+        assertTrue(repository.state.value is AuthState.LoggedIn)
+        assertEquals(false, registry.isLoggedOut(account.id))
+    }
+
+    @Test
+    fun freshStartRestoresFlaggedHermesAsLoggedIn() {
+        val secretStore = GuardMemoryStore()
+        val registry = ServerRegistry(secretStore)
+        val account = registry.activate(
+            "http://100.123.21.106:9119/".toHttpUrl(),
+            displayName = "hermes",
+            kind = ServerKind.HERMES,
+        )
+        registry.setLoggedOut(account.id, true)
+
+        val repository = repository(registry, secretStore, explodingClient())
+
+        assertTrue(repository.state.value is AuthState.LoggedIn)
+    }
+
+    @Test
+    fun logoutLeavesHermesAlone() = runBlocking {
+        val secretStore = GuardMemoryStore()
+        val registry = ServerRegistry(secretStore)
+        registry.activate(
+            "http://100.123.21.106:9119/".toHttpUrl(),
+            displayName = "hermes",
+            kind = ServerKind.HERMES,
+        )
+        val repository = repository(registry, secretStore, explodingClient())
+
+        repository.logout()
+
+        assertTrue(repository.state.value is AuthState.LoggedIn)
+    }
+
+    @Test
     fun restoredValidationSkipsWebuiProbeForHermes() = runBlocking {
         val secretStore = GuardMemoryStore()
         val registry = ServerRegistry(secretStore)

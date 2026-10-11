@@ -205,7 +205,7 @@ class BotSetupViewModel(
                     )
                     return false
                 }
-            val account = registry.activate(url, displayName = record.name, kind = ServerKind.HERMES)
+            val account = registry.activate(url, displayName = record.name, kind = ServerKind.HERMES, loggedOut = false)
             botStore.save(account.id, record)
             _savedServerId = account.id
             _state.value = _state.value.copy(isWorking = false, step = BotSetupStep.DONE)
