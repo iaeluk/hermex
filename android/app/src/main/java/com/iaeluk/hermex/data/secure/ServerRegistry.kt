@@ -52,6 +52,7 @@ class ServerRegistry(
         headerLogoColorHex: String? = null,
         customHeaders: List<CustomHeader>? = null,
         loggedOut: Boolean? = null,
+        kind: ServerKind = ServerKind.WEBUI,
     ): ServerAccount {
         ensureWritable()
         val id = normalizedId(url)
@@ -64,6 +65,7 @@ class ServerRegistry(
                 initials = initials?.trim()?.takeIf { it.isNotBlank() } ?: existing.initials,
                 headerLogoColorHex = headerLogoColorHex?.trim()?.takeIf { it.isNotBlank() }
                     ?: existing.headerLogoColorHex,
+                kind = kind,
                 updatedAtEpochMillis = System.currentTimeMillis(),
             )
             result = updated
@@ -78,6 +80,7 @@ class ServerRegistry(
                 displayName = displayName?.trim()?.takeIf { it.isNotBlank() } ?: url.host,
                 initials = initials?.trim()?.takeIf { it.isNotBlank() } ?: url.host.take(2).uppercase(),
                 headerLogoColorHex = headerLogoColorHex?.trim()?.takeIf { it.isNotBlank() } ?: "#FFD700",
+                kind = kind,
             )
             result = account
             current.copy(servers = current.servers + account, activeServerId = id)
