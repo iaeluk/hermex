@@ -133,12 +133,12 @@ class KanbanLabInstrumentedTest {
             composeRule.onAllNodesWithText("reviewer")[1].performClick()
             composeRule.onNodeWithText("Group by Profile").performClick()
             composeRule.onNodeWithText("Apply").performClick()
-            composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.waitUntil(timeoutMillis = 30_000) {
                 requests.any { request ->
                     request.url.encodedPath == "/api/kanban/board" && request.url.queryParameter("assignee") == "reviewer"
                 }
             }
-            composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.waitUntil(timeoutMillis = 30_000) {
                 composeRule.onAllNodesWithTag("kanban_profile_group_reviewer").fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithTag("kanban_card_list").performScrollToNode(hasTestTag("kanban_profile_group_reviewer"))
@@ -640,11 +640,11 @@ class KanbanLabInstrumentedTest {
         composeRule.onNodeWithTag("kanban_card_CARD-3").performClick()
         composeRule.onNodeWithText("2 Cards · Selected").assertIsDisplayed()
         composeRule.onNodeWithTag("kanban_bulk_actions").performClick()
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithTag("kanban_bulk_change_status").fetchSemanticsNodes().isNotEmpty()
         }
         // No emulador lento o botão pode abrir desabilitado (refresh em andamento); espera habilitar.
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithTag("kanban_bulk_change_status")
                 .fetchSemanticsNodes()
                 .any { node -> !node.config.contains(SemanticsProperties.Disabled) }
@@ -653,10 +653,10 @@ class KanbanLabInstrumentedTest {
 
         composeRule.mainClock.advanceTimeBy(1)
         // O submit fecha o sheet; confirma que o clique pegou antes de esperar o resumo.
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithTag("kanban_bulk_change_status").fetchSemanticsNodes().isEmpty()
         }
-        composeRule.waitUntil(15_000) {
+        composeRule.waitUntil(30_000) {
             composeRule.onAllNodesWithTag("kanban_bulk_retry_failed").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("kanban_bulk_member_CARD-3").assertIsDisplayed()

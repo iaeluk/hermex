@@ -65,6 +65,7 @@ android {
     }
 
     testOptions {
+        animationsDisabled = true
         managedDevices {
             localDevices {
                 create("pixel2api27") {
