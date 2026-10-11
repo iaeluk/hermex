@@ -1,0 +1,64 @@
+name: Android CI
+
+on:
+  pull_request:
+    paths:
+      - android/**
+      - .github/workflows/android-ci.yml
+  push:
+    branches:
+      - master
+    paths:
+      - android/**
+      - .github/workflows/android-ci.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Kotlin, Lint, And Device Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Android emulator
+        run: |
+          yes | "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}/cmdline-tools/latest/bin/sdkmanager" --install "emulator"
+
+      - name: Test, lint, and build
+        working-directory: android
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug
+
+      - name: Run API 27 managed-device tests
+        working-directory: android
+        run: ./gradlew pixel2api27DebugAndroidTest
+
+      - name: Run API 35 managed-device tests
+        working-directory: android
+        run: ./gradlew pixel2api35DebugAndroidTest
+
+      - name: Run API 36 managed-device tests
+        working-directory: android
+        run: ./gradlew pixel2api36DebugAndroidTest
