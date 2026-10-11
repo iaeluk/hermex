@@ -4,7 +4,6 @@ import android.animation.ValueAnimator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.text.Spannable
 import android.text.SpannableStringBuilder
@@ -500,7 +499,7 @@ private object SafeWebLinkResolver : LinkResolver {
     override fun resolve(view: View, link: String) {
         val uri = runCatching { Uri.parse(link) }.getOrNull() ?: return
         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return
-        runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+        openExternalUrl(view.context, uri)
     }
 }
 

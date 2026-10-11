@@ -207,4 +207,22 @@ class SessionListUiStateTest {
 
         assertEquals(listOf("content"), contentMatchSessionIds(loaded, results))
     }
+
+    @Test
+    fun visibleSessionsMatchAllSearchTokensInAnyOrder() {
+        val state = SessionListUiState(
+            searchQuery = "kanban deploy",
+            sessions = listOf(
+                SessionSummary(sessionId = "both", title = "Deploy the Kanban board"),
+                SessionSummary(sessionId = "deploy-only", title = "Deploy notes"),
+                SessionSummary(sessionId = "kanban-only", title = "Kanban ideas"),
+            ),
+        )
+
+        assertEquals(listOf("both"), state.visibleSessions.map { it.sessionId })
+        assertEquals(
+            listOf("both"),
+            state.copy(searchQuery = "deploy kanban").visibleSessions.map { it.sessionId },
+        )
+    }
 }

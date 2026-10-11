@@ -142,7 +142,7 @@ data class SessionListUiState(
             } ?: sourceFiltered
             val query = searchQuery.normalizedSearchQuery()
             val localMatches = projectFiltered
-                .filter { query.isEmpty() || it.searchableText.contains(query) }
+                .filter { it.matchesSearchQuery(query) }
                 .sortedForSessionList()
 
             if (query.isEmpty() || remoteSearchQuery != query) return localMatches
@@ -180,7 +180,7 @@ data class SessionListUiState(
             .filter { showCliSessions || it.isCliSession != true }
             .filter { showClaudeCodeSessions || !it.isClaudeCodeSession }
             .filter { sessionRowDisplaySettings.showSubagentSessions || !it.isDelegatedSubagentSession }
-            .filter { query.isEmpty() || it.searchableText.contains(query) }
+            .filter { it.matchesSearchQuery(query) }
             .toList()
             .sortedForSessionList()
     }
@@ -954,6 +954,16 @@ private fun ProjectMutationResponse.mutationError(fallback: String): String? =
 private fun SessionBranchResponse.mutationError(): String? = error?.trim()?.takeIf { it.isNotBlank() }
 
 private fun String.normalizedSearchQuery(): String = trim().lowercase()
+
+private val searchQuerySeparator = Regex("\\s+")
+
+private fun String.searchQueryTokens(): List<String> = split(searchQuerySeparator).filter(String::isNotBlank)
+
+private fun SessionSummary.matchesSearchQuery(query: String): Boolean {
+    if (query.isEmpty()) return true
+    val text = searchableText
+    return query.searchQueryTokens().all { text.contains(it) }
+}
 
 private val SessionSummary.searchableText: String
     get() = listOfNotNull(title, workspace, model, modelProvider, profile, sourceLabel)

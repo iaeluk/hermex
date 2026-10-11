@@ -6,9 +6,12 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
@@ -20,14 +23,17 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -37,6 +43,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -298,6 +305,7 @@ fun HermexPillButton(
     outlinedContentColor: Color? = null,
     contentPadding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
     leading: (@Composable RowScope.() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val view = LocalView.current
     val hapticsEnabled = LocalHermexHapticsEnabled.current
@@ -310,19 +318,52 @@ fun HermexPillButton(
     val outlinedContent = outlinedContentColor ?: MaterialTheme.colorScheme.onSurface
 
     if (filled) {
-        androidx.compose.material3.Button(
-            onClick = hapticClick,
-            enabled = enabled,
-            modifier = modifier.defaultMinSize(minHeight = 0.dp),
-            shape = HermexPillShape,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = filledContainer,
-                contentColor = filledContent,
-            ),
-            contentPadding = contentPadding,
-        ) {
-            if (leading != null) leading()
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        if (onLongClick == null) {
+            androidx.compose.material3.Button(
+                onClick = hapticClick,
+                enabled = enabled,
+                modifier = modifier.defaultMinSize(minHeight = 0.dp),
+                shape = HermexPillShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = filledContainer,
+                    contentColor = filledContent,
+                ),
+                contentPadding = contentPadding,
+            ) {
+                if (leading != null) leading()
+                Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            }
+        } else {
+            val hapticLongClick = {
+                if (hapticsEnabled) view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                onLongClick()
+            }
+            Box(
+                modifier = modifier
+                    .defaultMinSize(minHeight = 0.dp)
+                    .clip(HermexPillShape)
+                    .background(if (enabled) filledContainer else filledContainer.copy(alpha = 0.12f))
+                    .combinedClickable(
+                        enabled = enabled,
+                        role = Role.Button,
+                        onClick = hapticClick,
+                        onLongClick = hapticLongClick,
+                    )
+                    .padding(contentPadding),
+                contentAlignment = Alignment.Center,
+            ) {
+                CompositionLocalProvider(
+                    LocalContentColor provides if (enabled) filledContent else filledContent.copy(alpha = 0.38f),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (leading != null) leading()
+                        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
     } else {
         val outlinedModifier = if (outlinedContainerColor == null) {

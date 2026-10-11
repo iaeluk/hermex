@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
@@ -65,6 +64,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -124,6 +124,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -1114,11 +1115,11 @@ fun ChatRoute(
                                 isReadingOlderTranscript = false
                                 viewModel.send()
                             },
-                            onStreamingSend = {
+                            onStreamingSend = { behavior ->
                                 followsTranscriptBottom = true
                                 transcriptScrollCooldownActive = false
                                 isReadingOlderTranscript = false
-                                viewModel.submitStreamingDraft(streamingSendBehavior)
+                                viewModel.submitStreamingDraft(behavior)
                             },
                             onCancel = viewModel::cancel,
                             onOpenModelPicker = { showsModelPicker = true },
@@ -2176,7 +2177,7 @@ private fun ComposerSurface(
     showSecondaryBar: Boolean,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
-    onStreamingSend: () -> Unit,
+    onStreamingSend: (StreamingSendBehavior) -> Unit,
     onCancel: () -> Unit,
     onOpenModelPicker: () -> Unit,
     onOpenProfilePicker: () -> Unit,
@@ -2266,6 +2267,7 @@ private fun ComposerSurface(
             BasicTextField(
                 value = state.draft,
                 onValueChange = onDraftChange,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 52.dp, max = 132.dp)
@@ -2365,6 +2367,7 @@ private fun ComposerSurface(
                 )
             }
             if (state.isStreaming && state.draft.isNotBlank()) {
+                var sendBehaviorMenuOpen by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2374,12 +2377,41 @@ private fun ComposerSurface(
                     if (state.draft.trimStart().startsWith("/queue", ignoreCase = true)) {
                         HermexPillButton(localizedString("Queue"), onSend, enabled = !state.isRunningSessionAction, filled = true)
                     }
-                    HermexPillButton(
-                        streamingSendBehavior.actionLabel,
-                        onStreamingSend,
-                        enabled = !state.isRunningSessionAction,
-                        filled = true,
-                    )
+                    Box {
+                        HermexPillButton(
+                            streamingSendBehavior.actionLabel,
+                            { onStreamingSend(streamingSendBehavior) },
+                            enabled = !state.isRunningSessionAction,
+                            filled = true,
+                            onLongClick = { sendBehaviorMenuOpen = true },
+                        )
+                        DropdownMenu(
+                            expanded = sendBehaviorMenuOpen,
+                            onDismissRequest = { sendBehaviorMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(localizedString("Queue")) },
+                                onClick = {
+                                    sendBehaviorMenuOpen = false
+                                    onStreamingSend(StreamingSendBehavior.Queue)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(localizedString("Steer")) },
+                                onClick = {
+                                    sendBehaviorMenuOpen = false
+                                    onStreamingSend(StreamingSendBehavior.Steer)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(localizedString("Interrupt")) },
+                                onClick = {
+                                    sendBehaviorMenuOpen = false
+                                    onStreamingSend(StreamingSendBehavior.Interrupt)
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -3755,6 +3787,7 @@ private fun ClarificationCard(
         OutlinedTextField(
             value = draft,
             onValueChange = onDraftChange,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             placeholder = { Text(localizedString("Response")) },
             minLines = 1,
@@ -4084,6 +4117,7 @@ private fun EditMessageSheet(
             OutlinedTextField(
                 value = draft,
                 onValueChange = onDraftChange,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -4877,9 +4911,7 @@ private fun TranscriptLinkPreviewCard(
                 if (canLoadPreview && !previewRequested) {
                     previewRequested = true
                 } else {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
-                    }
+                    openExternalUrl(context, Uri.parse(url.toString()))
                 }
             }
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
