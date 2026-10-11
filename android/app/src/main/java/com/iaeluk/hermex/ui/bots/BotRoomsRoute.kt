@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.iaeluk.hermex.ui.chat.StreamStatusNotifier
 import kotlinx.coroutines.launch
 
 @Composable
@@ -82,12 +83,24 @@ fun BotRoomsRoute(
 @Composable
 fun BotRoomRoute(
     viewModel: BotRoomViewModel,
+    serverId: String = "",
     onDisbanded: () -> Unit,
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notifier = remember(context) { StreamStatusNotifier(context) }
+    var lastNotified by remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(viewModel) { viewModel.start() }
+    LaunchedEffect(state.messages.size) {
+        if (state.messages.size > lastNotified) {
+            lastNotified = state.messages.size
+            if (serverId.isNotBlank() && notifier.canPostCompletionNotifications()) {
+                notifier.showResponseComplete(serverId, "room:" + viewModel.roomId)
+            }
+        }
+    }
     Column(Modifier.fillMaxSize().testTag("bots_room_detail")) {
         Row(
             Modifier.fillMaxWidth().padding(8.dp),

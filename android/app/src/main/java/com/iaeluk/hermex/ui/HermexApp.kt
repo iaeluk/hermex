@@ -499,6 +499,9 @@ fun HermexApp(
                 composable(
                     route = "bots-chat/{profile}",
                     arguments = listOf(navArgument("profile") { type = NavType.StringType }),
+                    deepLinks = listOf(
+                        navDeepLink { uriPattern = "hermes-agent://bot?profile={profile}" },
+                    ),
                 ) { entry ->
                     val account = (authState as? AuthState.LoggedIn)?.account
                     val profile = entry.arguments?.getString("profile")

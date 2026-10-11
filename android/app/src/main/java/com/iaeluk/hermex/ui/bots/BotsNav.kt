@@ -127,7 +127,7 @@ fun BotsRoomScreen(
 ) {
     val client = container.botsClient(serverId) ?: return
     val viewModel = remember(serverId, roomId) { BotRoomViewModel(clientProvider = { client }, roomId = roomId) }
-    BotRoomRoute(viewModel = viewModel, onDisbanded = onDisbanded, onBack = onBack)
+    BotRoomRoute(viewModel = viewModel, serverId = serverId, onDisbanded = onDisbanded, onBack = onBack)
 }
 
 @Composable
