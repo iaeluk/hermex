@@ -39,6 +39,31 @@ jobs:
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v5
 
+      - name: Restore persistent signing key
+        env:
+          HERMEX_ANDROID_KEYSTORE_BASE64: ${{ secrets.HERMEX_ANDROID_KEYSTORE_BASE64 }}
+          HERMEX_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.HERMEX_ANDROID_KEYSTORE_PASSWORD }}
+          HERMEX_ANDROID_KEY_ALIAS: ${{ secrets.HERMEX_ANDROID_KEY_ALIAS }}
+          HERMEX_ANDROID_KEY_PASSWORD: ${{ secrets.HERMEX_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HERMEX_ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "No persistent signing secret, this APK gets an ephemeral CI debug key."
+            exit 0
+          fi
+          for value in HERMEX_ANDROID_KEYSTORE_PASSWORD HERMEX_ANDROID_KEY_ALIAS HERMEX_ANDROID_KEY_PASSWORD; do
+            if [ -z "${!value:-}" ]; then
+              echo "Missing required signing secret: $value"
+              exit 1
+            fi
+          done
+          keystore_path="$RUNNER_TEMP/hermex-android-debug.jks"
+          printf '%s' "$HERMEX_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "HERMEX_ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEYSTORE_PASSWORD=$HERMEX_ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEY_ALIAS=$HERMEX_ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEY_PASSWORD=$HERMEX_ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug --console=plain

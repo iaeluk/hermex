@@ -23,8 +23,8 @@ android {
         applicationId = "com.iaeluk.hermex"
         minSdk = 26
         targetSdk = 36
-        versionCode = 33
-        versionName = "1.1.0"
+        versionCode = 34
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -42,6 +42,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // CI restores the persistent Hermex key from secrets, so every
+            // debug APK shares one signature and installs over the last.
+            // Without those env vars this falls back to the local debug key.
+            if (hasReleaseSigningEnv) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = false
             if (hasReleaseSigningEnv) {
