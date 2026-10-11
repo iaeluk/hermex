@@ -441,6 +441,14 @@ fun SettingsRoute(
                         onValueChange = viewModel::setShowsChatGitControls,
                     )
                     SettingsFootnote("Covers the git button in the chat toolbar and turn-level git actions.")
+                    SettingsDivider()
+                    SettingsToggleRow(
+                        label = localizedString("Dismiss Keyboard on Send"),
+                        iconRes = com.iaeluk.hermex.R.drawable.ic_hermex_message_arrow,
+                        value = state.chatDisplaySettings.dismissKeyboardAfterSend,
+                        onValueChange = viewModel::setDismissKeyboardAfterSend,
+                    )
+                    SettingsFootnote("Hides the keyboard after sending, so the reply starts visible.")
                 }
             }
             item {

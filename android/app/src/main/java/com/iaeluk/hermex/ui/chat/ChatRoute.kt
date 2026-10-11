@@ -64,6 +64,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -117,6 +122,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -345,6 +351,7 @@ fun ChatRoute(
     var dictationJob by remember { mutableStateOf<Job?>(null) }
     val speechScope = rememberCoroutineScope()
     val modelPickerScope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(state.openSessionId) {
         val openSessionId = state.openSessionId ?: return@LaunchedEffect
@@ -1114,6 +1121,9 @@ fun ChatRoute(
                                 transcriptScrollCooldownActive = false
                                 isReadingOlderTranscript = false
                                 viewModel.send()
+                                if (chatDisplaySettings.dismissKeyboardAfterSend) {
+                                    keyboardController?.hide()
+                                }
                             },
                             onStreamingSend = { behavior ->
                                 followsTranscriptBottom = true
@@ -1200,6 +1210,10 @@ fun ChatRoute(
         SelectableMessageTextSheet(
             text = context.copyText,
             onDismiss = { selectedTextContext = null },
+            onAskAbout = { selection ->
+                viewModel.updateDraft(quoteSelectionForDraft(selection, state.draft))
+                selectedTextContext = null
+            },
         )
     }
 
@@ -2272,7 +2286,19 @@ private fun ComposerSurface(
                     .fillMaxWidth()
                     .heightIn(min = 52.dp, max = 132.dp)
                     .padding(horizontal = 18.dp, vertical = 14.dp)
-                    .semantics { contentDescription = messageDescription },
+                    .semantics { contentDescription = messageDescription }
+                    .onKeyEvent { event ->
+                        if (event.key == Key.DirectionUp && event.type == KeyEventType.KeyUp &&
+                            state.draft.isEmpty()
+                        ) {
+                            val last = state.messages.lastOrNull { it.role == "user" }
+                                ?.content?.takeIf { it.isNotBlank() }
+                            if (last != null) {
+                                onDraftChange(last)
+                                true
+                            } else false
+                        } else false
+                    },
                 enabled = !state.isViewingCachedData,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     color = if (state.isViewingCachedData) {
@@ -4041,6 +4067,7 @@ private fun StartNewProfileSessionDialog(
 private fun SelectableMessageTextSheet(
     text: String,
     onDismiss: () -> Unit,
+    onAskAbout: (String) -> Unit,
 ) {
     PickerSheet(
         title = "Select Text",
@@ -4048,6 +4075,14 @@ private fun SelectableMessageTextSheet(
         heightFraction = 0.86f,
     ) {
         val scrollState = rememberScrollState()
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = { onAskAbout(text) }) {
+                Text(localizedString("Ask about this"))
+            }
+        }
         SelectionContainer {
             Text(
                 text = text.ifBlank { " " },

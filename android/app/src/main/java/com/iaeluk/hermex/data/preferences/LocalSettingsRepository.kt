@@ -48,6 +48,7 @@ data class ChatDisplaySettings(
     val showsStatusNotificationResponseExcerpts: Boolean = false,
     val showsResponseSpeed: Boolean = false,
     val showsChatFilesButton: Boolean = true,
+    val dismissKeyboardAfterSend: Boolean = false,
     val showsChatGitControls: Boolean = true,
 )
 
@@ -120,6 +121,7 @@ class LocalSettingsRepository(context: Context) {
             showsStatusNotificationResponseExcerpts = preferences[SHOWS_STATUS_NOTIFICATION_RESPONSE_EXCERPTS] ?: false,
             showsResponseSpeed = preferences[SHOWS_RESPONSE_SPEED] ?: false,
             showsChatFilesButton = preferences[SHOWS_CHAT_FILES_BUTTON] ?: true,
+            dismissKeyboardAfterSend = preferences[DISMISS_KEYBOARD_AFTER_SEND] ?: false,
             showsChatGitControls = preferences[SHOWS_CHAT_GIT_CONTROLS] ?: true,
         )
     }
@@ -328,6 +330,12 @@ class LocalSettingsRepository(context: Context) {
         }
     }
 
+    suspend fun setDismissKeyboardAfterSend(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[DISMISS_KEYBOARD_AFTER_SEND] = enabled
+        }
+    }
+
     suspend fun setShowsChatGitControls(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[SHOWS_CHAT_GIT_CONTROLS] = enabled
@@ -460,6 +468,7 @@ class LocalSettingsRepository(context: Context) {
         val SHOWS_STATUS_NOTIFICATION_RESPONSE_EXCERPTS = booleanPreferencesKey("chatTranscript.showsStatusNotificationResponseExcerpts")
         val SHOWS_RESPONSE_SPEED = booleanPreferencesKey("chatTranscript.showsResponseSpeed")
         val SHOWS_CHAT_FILES_BUTTON = booleanPreferencesKey("chatToolbar.showsFilesButton")
+        val DISMISS_KEYBOARD_AFTER_SEND = booleanPreferencesKey("chatComposer.dismissKeyboardAfterSend")
         val SHOWS_CHAT_GIT_CONTROLS = booleanPreferencesKey("chatToolbar.showsGitControls")
         val SESSION_ROW_SHOW_MESSAGE_COUNT = booleanPreferencesKey("sessionRow.showMessageCount")
         val SESSION_ROW_SHOW_WORKSPACE = booleanPreferencesKey("sessionRow.showWorkspace")

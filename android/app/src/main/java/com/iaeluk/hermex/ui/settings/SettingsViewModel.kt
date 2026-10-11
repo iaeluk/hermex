@@ -742,6 +742,10 @@ class SettingsViewModel(
         localSettingsRepository.setShowsChatGitControls(enabled)
     }
 
+    fun setDismissKeyboardAfterSend(enabled: Boolean) = updateChatDisplay {
+        localSettingsRepository.setDismissKeyboardAfterSend(enabled)
+    }
+
     fun setSessionRowShowMessageCount(enabled: Boolean) {
         viewModelScope.launch {
             runSuspendCatching { localSettingsRepository.setSessionRowShowMessageCount(enabled) }
