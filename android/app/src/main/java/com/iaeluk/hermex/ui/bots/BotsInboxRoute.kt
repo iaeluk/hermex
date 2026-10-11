@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -73,7 +75,7 @@ fun BotsInboxRoute(
         com.iaeluk.hermex.core.network.bots.filterInbox(state.rows, query)
     }
 
-    Column(Modifier.fillMaxSize().testTag("bots_inbox")) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().testTag("bots_inbox")) {
         androidx.compose.material3.OutlinedTextField(
             value = query,
             onValueChange = { query = it },

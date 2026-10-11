@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -37,6 +40,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.iaeluk.hermex.ui.chat.StreamStatusNotifier
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -57,6 +61,12 @@ fun BotChatRoute(
     var lastNotifiedTurns by remember { mutableStateOf(0) }
 
     LaunchedEffect(viewModel) { viewModel.start() }
+    LaunchedEffect(state.isReconnecting, state.reconnectAttempt) {
+        if (state.isReconnecting) {
+            delay(BotChatViewModel.reconnectDelayMs(state.reconnectAttempt))
+            viewModel.retryConnection()
+        }
+    }
     DisposableEffect(viewModel) {
         onDispose {
             scope.launch { viewModel.persistDraft() }
@@ -80,7 +90,7 @@ fun BotChatRoute(
         scope.launch { viewModel.refreshSlash() }
     }
 
-    Column(Modifier.fillMaxSize().testTag("bots_chat")) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().testTag("bots_chat")) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -161,15 +171,32 @@ fun BotChatRoute(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
-                state.error?.let {
+                if (state.isReconnecting) {
                     Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
+                        "Reconnecting…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
+                state.error?.let {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { scope.launch { viewModel.retryNow() } }) {
+                            Text("Retry")
+                        }
+                    }
+                }
                 Row(
-                    Modifier.fillMaxWidth().padding(8.dp),
+                    Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

@@ -33,6 +33,8 @@ data class BotChatUiState(
     val error: String? = null,
     val runtime: String? = null,
     val completedTurns: Int = 0,
+    val isReconnecting: Boolean = false,
+    val reconnectAttempt: Int = 0,
     val pendingApprovals: List<BotPendingApproval> = emptyList(),
     val pendingQuestions: List<BotPendingQuestion> = emptyList(),
     val pendingCredentials: List<BotPendingCredential> = emptyList(),
@@ -61,6 +63,7 @@ class BotChatViewModel(
 
     private var client: BotClient? = null
     private var streamingAssistant: StringBuilder? = null
+    private var lastSessionKey: String? = null
 
     suspend fun start() {
         _state.value = BotsChatLoading()
@@ -73,6 +76,7 @@ class BotChatViewModel(
             val draft = try { drafts.load() } catch (_: Throwable) { "" }
             _state.value = _state.value.copy(input = draft)
             val sessionKey = ensureChat(client)
+            lastSessionKey = sessionKey
             val resume = client.call(HermesCall.SessionResume(profile, sessionKey))
             applyResume(resume)
             _state.value = _state.value.copy(isLoading = false)
@@ -421,7 +425,79 @@ class BotChatViewModel(
 
     private fun onDisconnect(error: BotFailure) {
         finishTurn()
-        _state.value = _state.value.copy(isConnected = false, error = describe(error))
+        if (error is BotFailure.Stale ||
+            _state.value.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS
+        ) {
+            _state.value = _state.value.copy(
+                isConnected = false,
+                isReconnecting = false,
+                error = describe(error),
+            )
+            return
+        }
+        // Drops auto-recover: the route drives retryConnection() while
+        // isReconnecting, so a tunnel blip never strands the transcript.
+        _state.value = _state.value.copy(isConnected = false, isReconnecting = true, error = null)
+    }
+
+    /**
+     * Re-attaches after a drop without wiping the transcript or the composer.
+     * The route drives this while [BotChatUiState.isReconnecting]; failures stay
+     * quiet until the attempts run out, then the error row offers manual retry.
+     */
+    suspend fun retryConnection() {
+        val attempt = _state.value.reconnectAttempt + 1
+        _state.value = _state.value.copy(
+            reconnectAttempt = attempt,
+            isReconnecting = true,
+            error = null,
+        )
+        try {
+            val client = clientProvider().also { this.client = it }
+            client.onEvent = { onEvent(it) }
+            client.onDisconnect = { onDisconnect(it) }
+            client.connect()
+            val key = lastSessionKey ?: ensureChat(client)
+            lastSessionKey = key
+            val resume = client.call(HermesCall.SessionResume(profile, key, omitMessages = true))
+            applyResumeKeepTranscript(resume)
+            _state.value = _state.value.copy(
+                isConnected = true,
+                isLoading = false,
+                isReconnecting = false,
+                reconnectAttempt = 0,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            if (attempt >= MAX_RECONNECT_ATTEMPTS || error is BotFailure.Stale) {
+                finishTurn()
+                _state.value = _state.value.copy(
+                    isConnected = false,
+                    isReconnecting = false,
+                    error = describe(error),
+                )
+            }
+        }
+    }
+
+    /** Manual retry from the error row: restarts the backoff from the first delay. */
+    suspend fun retryNow() {
+        _state.value = _state.value.copy(reconnectAttempt = 0)
+        retryConnection()
+    }
+
+    /** Re-applies a resume without dropping a transcript the host did not echo. */
+    private fun applyResumeKeepTranscript(resume: BotJson) {
+        val current = _state.value.messages
+        applyResume(resume)
+        if (current.isNotEmpty() && _state.value.messages.isEmpty()) {
+            val running = resume["running"].flag == true || resume["status"].text == "working"
+            _state.value = _state.value.copy(
+                messages = current,
+                isRunning = _state.value.isRunning || running,
+            )
+        }
     }
 
     private fun ensureAssistantTurn() {
@@ -474,9 +550,20 @@ class BotChatViewModel(
     companion object {
         private fun BotsChatLoading() = BotChatUiState(isLoading = true)
 
+        /** Drops give up after this many tries; the error row offers manual retry. */
+        const val MAX_RECONNECT_ATTEMPTS = 5
+
+        /** 1s, 2s, 4s, then 8s: quick on blips, calm on flapping networks. */
+        fun reconnectDelayMs(attempt: Int): Long = when {
+            attempt <= 0 -> 1_000L
+            attempt == 1 -> 2_000L
+            attempt == 2 -> 4_000L
+            else -> 8_000L
+        }
+
         fun describe(error: Throwable): String = when (error) {
             is BotFailure.Stale -> "This connection was replaced."
-            is BotFailure.Transport -> "Connection lost. Reopen to reconnect."
+            is BotFailure.Transport -> "Connection lost."
             is BotFailure.Rejected -> "The host refused the request (${error.code})."
             else -> error.message ?: "Something went wrong."
         }

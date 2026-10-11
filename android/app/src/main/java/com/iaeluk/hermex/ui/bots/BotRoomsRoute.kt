@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -41,7 +44,7 @@ fun BotRoomsRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     LaunchedEffect(viewModel) { viewModel.start() }
-    Column(Modifier.fillMaxSize().testTag("bots_rooms")) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().testTag("bots_rooms")) {
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -101,7 +104,7 @@ fun BotRoomRoute(
             }
         }
     }
-    Column(Modifier.fillMaxSize().testTag("bots_room_detail")) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().testTag("bots_room_detail")) {
         Row(
             Modifier.fillMaxWidth().padding(8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -123,7 +126,10 @@ fun BotRoomRoute(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             OutlinedTextField(
                 value = state.input,
                 onValueChange = viewModel::updateInput,
@@ -153,7 +159,7 @@ fun BotRoomCreateRoute(
     var members by remember { mutableStateOf(membersHint) }
     var error by remember { mutableStateOf<String?>(null) }
     Column(
-        Modifier.fillMaxSize().padding(16.dp).testTag("bots_room_create"),
+        Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp).testTag("bots_room_create"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
