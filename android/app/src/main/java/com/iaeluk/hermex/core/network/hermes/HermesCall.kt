@@ -59,6 +59,15 @@ sealed class HermesCall {
     /** Answers a pending dangerous-command approval. Choice is the host's vocabulary. */
     data class ApprovalRespond(val sessionId: String, val requestId: String, val choice: String) : HermesCall()
 
+    /** Answers a credential/secret request with `{value}`. Empty skips. */
+    data class RequestAnswer(val id: String, val value: String) : HermesCall()
+
+    /** Locks one batch clarify answer per question id. */
+    data class ClarifyLock(val requestId: String, val questionId: String, val answer: String) : HermesCall()
+
+    /** Answers a single clarify question with free text or a choice label. */
+    data class ClarifyAnswer(val id: String, val answer: String) : HermesCall()
+
     val method: String
         get() = when (this) {
             is ClientCapabilities -> "client.capabilities"
@@ -75,6 +84,9 @@ sealed class HermesCall {
             is SessionInterrupt -> "session.interrupt"
             is SessionClose -> "session.close"
             is ApprovalRespond -> "approval.respond"
+            is RequestAnswer -> "request.answer"
+            is ClarifyLock -> "clarify.lock"
+            is ClarifyAnswer -> "request.answer"
         }
 
     companion object {
@@ -155,6 +167,28 @@ sealed class HermesCall {
                 put("session_id", sessionId)
                 put("request_id", requestId)
                 put("choice", choice)
+            }
+        }
+        is RequestAnswer -> {
+            if (id.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("id", id)
+                put("result", buildJsonObject { put("value", value) })
+            }
+        }
+        is ClarifyLock -> {
+            if (requestId.isBlank() || questionId.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("request_id", requestId)
+                put("question_id", questionId)
+                put("answer", answer)
+            }
+        }
+        is ClarifyAnswer -> {
+            if (id.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("id", id)
+                put("result", buildJsonObject { put("answer", answer) })
             }
         }
     }

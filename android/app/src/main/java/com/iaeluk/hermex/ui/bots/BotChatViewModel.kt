@@ -3,6 +3,9 @@ package com.iaeluk.hermex.ui.bots
 import com.iaeluk.hermex.core.network.bots.BotFailure
 import com.iaeluk.hermex.core.network.bots.BotJson
 import com.iaeluk.hermex.core.network.bots.BotPendingApproval
+import com.iaeluk.hermex.core.network.bots.BotPendingCredential
+import com.iaeluk.hermex.core.network.bots.BotPendingDesktop
+import com.iaeluk.hermex.core.network.bots.BotPendingQuestion
 import com.iaeluk.hermex.core.network.bots.BotSessionRow
 import com.iaeluk.hermex.core.network.bots.flag
 import com.iaeluk.hermex.core.network.bots.get
@@ -30,6 +33,10 @@ data class BotChatUiState(
     val runtime: String? = null,
     val completedTurns: Int = 0,
     val pendingApprovals: List<BotPendingApproval> = emptyList(),
+    val pendingQuestions: List<BotPendingQuestion> = emptyList(),
+    val pendingCredentials: List<BotPendingCredential> = emptyList(),
+    val pendingDesktop: List<BotPendingDesktop> = emptyList(),
+    val withdrawnNotice: String? = null,
 )
 
 /**
@@ -199,25 +206,150 @@ class BotChatViewModel(
                 val message = event["payload"]["message"].text
                 if (!message.isNullOrEmpty()) _state.value = _state.value.copy(error = message)
             }
+            "request.cancel" -> onRequestCancel(event["payload"])
         }
     }
 
-    /**
-     * One server request: today only `approval` is answerable here. Anything
-     * else parks the bot too, so it shows as waiting rather than silently
-     * passing; the host's Desktop window answers those.
-     */
+    /** One server request: approval, clarify, sudo/secret, or a Desktop task. */
     private fun onServerRequest(envelope: BotJson) {
-        if (envelope["method"].text != "approval") {
-            _state.value = _state.value.copy(isRunning = true)
+        val method = envelope["method"].text
+        when (method) {
+            "approval" -> {
+                val approval = BotPendingApproval.fromEnvelope(envelope) ?: return
+                val current = _state.value.pendingApprovals
+                if (current.any { it.requestId == approval.requestId }) return
+                _state.value = _state.value.copy(
+                    pendingApprovals = current + approval,
+                    isRunning = true,
+                    withdrawnNotice = null,
+                )
+            }
+            "clarify" -> {
+                val question = BotPendingQuestion.fromEnvelope(envelope) ?: return
+                val current = _state.value.pendingQuestions
+                if (current.any { it.requestId == question.requestId }) return
+                _state.value = _state.value.copy(
+                    pendingQuestions = current + question,
+                    isRunning = true,
+                    withdrawnNotice = null,
+                )
+            }
+            "sudo", "secret" -> {
+                val credential = BotPendingCredential.fromEnvelope(method, envelope) ?: return
+                val current = _state.value.pendingCredentials
+                if (current.any { it.requestId == credential.requestId }) return
+                _state.value = _state.value.copy(
+                    pendingCredentials = current + credential,
+                    isRunning = true,
+                    withdrawnNotice = null,
+                )
+            }
+            "tour", "terminal.read", "window.read", "preview.read", "preview.act" -> {
+                val desktop = BotPendingDesktop.fromEnvelope(method, envelope) ?: return
+                val current = _state.value.pendingDesktop
+                if (current.any { it.requestId == desktop.requestId }) return
+                _state.value = _state.value.copy(
+                    pendingDesktop = current + desktop,
+                    isRunning = true,
+                    withdrawnNotice = null,
+                )
+            }
+            else -> _state.value = _state.value.copy(isRunning = true)
+        }
+    }
+
+    /** `request.cancel` withdraws only the matching envelope, with a note. */
+    private fun onRequestCancel(payload: BotJson?) {
+        val id = payload["id"].text?.takeIf { it.isNotEmpty() } ?: return
+        val method = payload["method"].text?.takeIf { it.isNotEmpty() } ?: return
+        val reason = payload["reason"].text
+        val state = _state.value
+        val removed = state.pendingApprovals.any { it.envelopeId == id } ||
+            state.pendingQuestions.any { it.envelopeId == id } ||
+            state.pendingCredentials.any { it.envelopeId == id } ||
+            state.pendingDesktop.any { it.envelopeId == id }
+        _state.value = state.copy(
+            pendingApprovals = state.pendingApprovals.filterNot { it.envelopeId == id },
+            pendingQuestions = state.pendingQuestions.filterNot { it.envelopeId == id },
+            pendingCredentials = state.pendingCredentials.filterNot { it.envelopeId == id },
+            pendingDesktop = state.pendingDesktop.filterNot { it.envelopeId == id },
+            withdrawnNotice = if (removed) withdrawMessage(method, reason) else state.withdrawnNotice,
+        )
+    }
+
+    private fun withdrawMessage(method: String, reason: String?): String? {
+        if (reason.isNullOrBlank() || reason == "resolved") return null
+        val what = when (method) {
+            "approval" -> "Approval"
+            "clarify" -> "Question"
+            else -> "Request"
+        }
+        return when (reason.trim()) {
+            "timeout" -> if (method == "approval") "Approval timed out, so it didn't run."
+                else "$what timed out. The bot carried on without an answer."
+            "interrupted", "session_closed" -> "$what withdrawn because the work stopped."
+            "shutdown" -> "$what withdrawn because Hermes shut down."
+            else -> "$what withdrawn."
+        }
+    }
+
+    /** Answers one pending question: a choice locks, free text submits. */
+    suspend fun answerQuestion(envelopeId: String, questionId: String?, answer: String) {
+        val client = client ?: return
+        val pending = _state.value.pendingQuestions.firstOrNull { it.envelopeId == envelopeId } ?: return
+        _state.value = _state.value.copy(error = null)
+        try {
+            if (pending.isBatch && questionId != null) {
+                client.call(HermesCall.ClarifyLock(pending.requestId, questionId, answer))
+            } else {
+                client.call(HermesCall.ClarifyAnswer(pending.requestId, answer))
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            _state.value = _state.value.copy(error = describe(error))
             return
         }
-        val approval = BotPendingApproval.fromEnvelope(envelope) ?: return
-        val current = _state.value.pendingApprovals
-        if (current.any { it.requestId == approval.requestId }) return
+        if (pending.isBatch && questionId != null) {
+            val updated = pending.questions.map {
+                if (it.wireId == questionId) it.copy(lockedAnswer = answer) else it
+            }
+            val remaining = _state.value.pendingQuestions.map {
+                if (it.envelopeId == envelopeId) it.copy(questions = updated) else it
+            }.filterNot { it.questions.all { q -> q.isAnswered } }
+            _state.value = _state.value.copy(pendingQuestions = remaining)
+        } else {
+            _state.value = _state.value.copy(
+                pendingQuestions = _state.value.pendingQuestions.filterNot { it.envelopeId == envelopeId },
+            )
+        }
+    }
+
+    /** Answers one credential request; empty skips without retaining a secret. */
+    suspend fun answerCredential(envelopeId: String, value: String) {
+        val client = client ?: return
+        val pending = _state.value.pendingCredentials.firstOrNull { it.envelopeId == envelopeId } ?: return
+        _state.value = _state.value.copy(error = null)
+        try {
+            client.call(HermesCall.RequestAnswer(pending.requestId, value))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            _state.value = _state.value.copy(error = describe(error))
+            return
+        }
         _state.value = _state.value.copy(
-            pendingApprovals = current + approval,
-            isRunning = true,
+            pendingCredentials = _state.value.pendingCredentials.filterNot { it.envelopeId == envelopeId },
+        )
+    }
+
+    /** Skips one credential request explicitly. */
+    suspend fun skipCredential(envelopeId: String) = answerCredential(envelopeId, "")
+
+    /** Dismisses one Desktop wait card; nothing is sent. */
+    fun dismissDesktop(envelopeId: String) {
+        _state.value = _state.value.copy(
+            pendingDesktop = _state.value.pendingDesktop.filterNot { it.envelopeId == envelopeId },
         )
     }
 

@@ -66,6 +66,16 @@ class HermesCallMvpTest {
     }
 
     @Test
+    fun questionAndCredentialAnswersCarryIds() {
+        assertEquals("request.answer", HermesCall.RequestAnswer("s-1", "v").method)
+        assertEquals("clarify.lock", HermesCall.ClarifyLock("q-10", "a", "done").method)
+        assertEquals("request.answer", HermesCall.ClarifyAnswer("q-9", "main").method)
+        val lock = HermesCall.ClarifyLock("q-10", "a", "done").params()
+        assertEquals("q-10", lock["request_id"]?.toString()?.trim('"'))
+        assertEquals("a", lock["question_id"]?.toString()?.trim('"'))
+    }
+
+    @Test
     fun readsAreCancellationSafeAndLiveReadsTimeOutLocally() {
         assertTrue(HermesCall.ProfilesList(true).isCancellationSafe)
         assertTrue(HermesCall.SessionList("p").isCancellationSafe)

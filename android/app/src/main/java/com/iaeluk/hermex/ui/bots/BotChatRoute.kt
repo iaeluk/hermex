@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.iaeluk.hermex.ui.chat.StreamStatusNotifier
@@ -115,6 +116,34 @@ fun BotChatRoute(
                         onAnswer = { choice -> scope.launch { viewModel.answerApproval(approval.requestId, choice) } },
                     )
                 }
+                state.pendingQuestions.forEach { pending ->
+                    BotQuestionCard(
+                        pending = pending,
+                        onChoice = { questionId, label -> scope.launch { viewModel.answerQuestion(pending.envelopeId, questionId, label) } },
+                        onFreeText = { questionId, text -> scope.launch { viewModel.answerQuestion(pending.envelopeId, questionId, text) } },
+                    )
+                }
+                state.pendingCredentials.forEach { credential ->
+                    BotCredentialCard(
+                        credential = credential,
+                        onSubmit = { value -> scope.launch { viewModel.answerCredential(credential.envelopeId, value) } },
+                        onSkip = { scope.launch { viewModel.skipCredential(credential.envelopeId) } },
+                    )
+                }
+                state.pendingDesktop.forEach { desktop ->
+                    BotDesktopCard(
+                        desktop = desktop,
+                        onDismiss = { viewModel.dismissDesktop(desktop.envelopeId) },
+                    )
+                }
+                state.withdrawnNotice?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
                 state.error?.let {
                     Text(
                         it,
@@ -170,6 +199,115 @@ fun BotChatRoute(
     }
 }
 
+
+
+@Composable
+private fun BotQuestionCard(
+    pending: com.iaeluk.hermex.core.network.bots.BotPendingQuestion,
+    onChoice: (String?, String) -> Unit,
+    onFreeText: (String?, String) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("bots_question_${pending.requestId}"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("Needs your answer", style = MaterialTheme.typography.labelMedium)
+        pending.questions.forEach { question ->
+            if (question.isAnswered) return@forEach
+            Text(question.prompt, style = MaterialTheme.typography.bodyMedium)
+            if (question.choices.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    question.choices.forEach { choice ->
+                        OutlinedButton(onClick = { onChoice(question.wireId, choice.wireLabel) }) {
+                            Text(choice.label)
+                        }
+                    }
+                }
+            }
+            var freeText by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = freeText,
+                    onValueChange = { freeText = it },
+                    placeholder = { Text("Type an answer") },
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = { onFreeText(question.wireId, freeText); freeText = "" },
+                    enabled = freeText.isNotBlank(),
+                ) { Text("Send") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BotCredentialCard(
+    credential: com.iaeluk.hermex.core.network.bots.BotPendingCredential,
+    onSubmit: (String) -> Unit,
+    onSkip: () -> Unit,
+) {
+    var value by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("bots_credential_${credential.requestId}"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(credential.title, style = MaterialTheme.typography.labelMedium)
+        Text(credential.detail, style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Hermex never saves it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = value,
+            onValueChange = { value = it },
+            placeholder = { Text(if (credential.kind == "sudo") "Administrator password" else credential.envVar ?: "Secret value") },
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { onSubmit(value); value = "" }, enabled = value.isNotEmpty()) { Text("Send") }
+            OutlinedButton(onClick = onSkip) { Text("Skip") }
+        }
+    }
+}
+
+@Composable
+private fun BotDesktopCard(
+    desktop: com.iaeluk.hermex.core.network.bots.BotPendingDesktop,
+    onDismiss: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("bots_desktop_${desktop.requestId}"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(desktop.title, style = MaterialTheme.typography.labelMedium)
+        Text(
+            "Hermes Desktop answers this by itself. There is nothing to do here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = onDismiss) { Text("Dismiss") }
+    }
+}
 
 @Composable
 private fun BotApprovalCard(
