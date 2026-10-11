@@ -68,6 +68,18 @@ sealed class HermesCall {
     /** Answers a single clarify question with free text or a choice label. */
     data class ClarifyAnswer(val id: String, val answer: String) : HermesCall()
 
+    /** Slash-command completions for the argument stage (`/name `). */
+    data class CompleteSlash(val text: String, val sessionId: String) : HermesCall()
+
+    /** Runs one slash command line (`/name args`). */
+    data class SlashExec(val sessionId: String, val command: String) : HermesCall()
+
+    /** Path completions for `@path` mentions. */
+    data class CompletePath(val word: String, val sessionId: String, val profile: String) : HermesCall()
+
+    /** Attaches one file to the session as a data URL. */
+    data class FileAttach(val sessionId: String, val name: String, val dataUrl: String) : HermesCall()
+
     val method: String
         get() = when (this) {
             is ClientCapabilities -> "client.capabilities"
@@ -87,11 +99,22 @@ sealed class HermesCall {
             is RequestAnswer -> "request.answer"
             is ClarifyLock -> "clarify.lock"
             is ClarifyAnswer -> "request.answer"
+            is CompleteSlash -> "complete.slash"
+            is SlashExec -> "slash.exec"
+            is CompletePath -> "complete.path"
+            is FileAttach -> "file.attach"
         }
 
     companion object {
         /** The canonical title every bot's hidden chat carries. */
         const val BOT_CHAT_TITLE = "Bot Chat"
+
+        /** A slash line: `/name` with a non-space first char after the slash. */
+        fun isSlashLine(text: String): Boolean {
+            if (!text.startsWith("/")) return false
+            val first = text.drop(1).firstOrNull() ?: return false
+            return !first.isWhitespace()
+        }
     }
 
     /**
@@ -189,6 +212,38 @@ sealed class HermesCall {
             buildJsonObject {
                 put("id", id)
                 put("result", buildJsonObject { put("answer", answer) })
+            }
+        }
+        is CompleteSlash -> {
+            if (sessionId.isBlank() || !isSlashLine(text) || !text.contains(" ")) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("text", text)
+                put("session_id", sessionId)
+            }
+        }
+        is SlashExec -> {
+            if (sessionId.isBlank() || !isSlashLine(command)) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("session_id", sessionId)
+                put("command", command)
+            }
+        }
+        is CompletePath -> {
+            if (word.isBlank() || word.any { it.isWhitespace() } || sessionId.isBlank() || profile.isBlank()) {
+                throw BotFailure.Unsupported
+            }
+            buildJsonObject {
+                put("word", word)
+                put("session_id", sessionId)
+                put("profile", profile)
+            }
+        }
+        is FileAttach -> {
+            if (sessionId.isBlank() || name.isBlank() || dataUrl.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("session_id", sessionId)
+                put("name", name)
+                put("data_url", dataUrl)
             }
         }
     }

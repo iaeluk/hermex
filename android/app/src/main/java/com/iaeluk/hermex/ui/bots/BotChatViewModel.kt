@@ -5,6 +5,7 @@ import com.iaeluk.hermex.core.network.bots.BotJson
 import com.iaeluk.hermex.core.network.bots.BotPendingApproval
 import com.iaeluk.hermex.core.network.bots.BotPendingCredential
 import com.iaeluk.hermex.core.network.bots.BotPendingDesktop
+import com.iaeluk.hermex.core.network.bots.BotComplete
 import com.iaeluk.hermex.core.network.bots.BotPendingQuestion
 import com.iaeluk.hermex.core.network.bots.BotSessionRow
 import com.iaeluk.hermex.core.network.bots.flag
@@ -37,6 +38,7 @@ data class BotChatUiState(
     val pendingCredentials: List<BotPendingCredential> = emptyList(),
     val pendingDesktop: List<BotPendingDesktop> = emptyList(),
     val withdrawnNotice: String? = null,
+    val slashCandidates: List<BotComplete.Candidate> = emptyList(),
 )
 
 /**
@@ -83,6 +85,52 @@ class BotChatViewModel(
 
     fun updateInput(text: String) {
         _state.value = _state.value.copy(input = text)
+        if (!HermesCall.isSlashLine(text) || !text.contains(" ")) {
+            if (_state.value.slashCandidates.isNotEmpty()) {
+                _state.value = _state.value.copy(slashCandidates = emptyList())
+            }
+        }
+    }
+
+    /** Refreshes `/name ` completions; failures clear the list silently. */
+    suspend fun refreshSlash() {
+        val client = client ?: return
+        val runtime = _state.value.runtime ?: return
+        val text = _state.value.input
+        if (!HermesCall.isSlashLine(text) || !text.contains(" ")) return
+        try {
+            val reply = client.call(HermesCall.CompleteSlash(text, runtime))
+            _state.value = _state.value.copy(slashCandidates = BotComplete.candidates(reply))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            _state.value = _state.value.copy(slashCandidates = emptyList())
+        }
+    }
+
+    /** Runs one slash line and echoes it like a send. */
+    suspend fun execSlash(command: String) {
+        val runtime = _state.value.runtime ?: return
+        sendCall(HermesCall.SlashExec(runtime, command), echo = command, clearInput = true)
+        _state.value = _state.value.copy(slashCandidates = emptyList())
+    }
+
+    /** Attaches one small text file to the session. */
+    suspend fun attachTextFile(name: String, text: String) {
+        val client = client ?: return
+        val runtime = _state.value.runtime ?: return
+        if (name.isBlank() || text.isEmpty()) return
+        _state.value = _state.value.copy(error = null)
+        try {
+            val dataUrl = "data:text/plain;base64," + java.util.Base64.getEncoder()
+                .encodeToString(text.toByteArray(Charsets.UTF_8))
+            client.call(HermesCall.FileAttach(runtime, name, dataUrl))
+            appendMessage(BotChatMessage(role = "user", text = "Attached " + name))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            _state.value = _state.value.copy(error = describe(error))
+        }
     }
 
     suspend fun persistDraft() {

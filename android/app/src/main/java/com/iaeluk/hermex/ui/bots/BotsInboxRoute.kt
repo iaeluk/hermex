@@ -66,7 +66,19 @@ fun BotsInboxRoute(
         }
     }
 
+    var query by remember { mutableStateOf("") }
+    val visibleRows = remember(state.rows, query) {
+        com.iaeluk.hermex.core.network.bots.filterInbox(state.rows, query)
+    }
+
     Column(Modifier.fillMaxSize().testTag("bots_inbox")) {
+        androidx.compose.material3.OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Search bots") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("bots_inbox_search"),
+        )
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -101,7 +113,7 @@ fun BotsInboxRoute(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(state.rows, key = { it.profile.id }) { row ->
+                    items(visibleRows, key = { it.profile.id }) { row ->
                         BotInboxRowItem(row = row, onClick = { onOpenChat(row.profile.id) })
                     }
                 }

@@ -75,6 +75,10 @@ fun BotChatRoute(
             }
         }
     }
+    LaunchedEffect(state.input) {
+        kotlinx.coroutines.delay(250)
+        scope.launch { viewModel.refreshSlash() }
+    }
 
     Column(Modifier.fillMaxSize().testTag("bots_chat")) {
         Row(
@@ -135,6 +139,19 @@ fun BotChatRoute(
                         desktop = desktop,
                         onDismiss = { viewModel.dismissDesktop(desktop.envelopeId) },
                     )
+                }
+                if (state.slashCandidates.isNotEmpty()) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        state.slashCandidates.forEach { candidate ->
+                            TextButton(
+                                onClick = { scope.launch { viewModel.execSlash(candidate.insert) } },
+                                modifier = Modifier.testTag("bots_slash_${candidate.insert}"),
+                            ) { Text(candidate.display) }
+                        }
+                    }
                 }
                 state.withdrawnNotice?.let {
                     Text(
