@@ -48,6 +48,24 @@ class HermesCallMvpTest {
     }
 
     @Test
+    fun approvalRespondCarriesTheHostVocabulary() {
+        val call = HermesCall.ApprovalRespond("run-1", "q-1", "session")
+        assertEquals("approval.respond", call.method)
+        val params = call.params()
+        assertEquals("run-1", params["session_id"]?.toString()?.trim('"'))
+        assertEquals("q-1", params["request_id"]?.toString()?.trim('"'))
+        assertEquals("session", params["choice"]?.toString()?.trim('"'))
+    }
+
+    @Test
+    fun approvalRespondRefusesUnknownChoices() {
+        val failure = runCatching {
+            HermesCall.ApprovalRespond("run-1", "q-1", "sometimes").params()
+        }.exceptionOrNull()
+        assertTrue(failure is BotFailure.Unsupported)
+    }
+
+    @Test
     fun readsAreCancellationSafeAndLiveReadsTimeOutLocally() {
         assertTrue(HermesCall.ProfilesList(true).isCancellationSafe)
         assertTrue(HermesCall.SessionList("p").isCancellationSafe)

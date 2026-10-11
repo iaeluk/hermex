@@ -2,6 +2,7 @@ package com.iaeluk.hermex.ui.bots
 
 import com.iaeluk.hermex.core.network.bots.BotFailure
 import com.iaeluk.hermex.core.network.bots.BotJson
+import com.iaeluk.hermex.core.network.bots.BotPendingApproval
 import com.iaeluk.hermex.core.network.bots.BotSessionRow
 import com.iaeluk.hermex.core.network.bots.flag
 import com.iaeluk.hermex.core.network.bots.get
@@ -28,6 +29,7 @@ data class BotChatUiState(
     val error: String? = null,
     val runtime: String? = null,
     val completedTurns: Int = 0,
+    val pendingApprovals: List<BotPendingApproval> = emptyList(),
 )
 
 /**
@@ -167,6 +169,11 @@ class BotChatViewModel(
     }
 
     private fun onEvent(event: BotJson) {
+        // Server requests arrive in the original envelope (string id + method).
+        if (event["id"].text != null && event["method"].text != null) {
+            onServerRequest(event)
+            return
+        }
         when (event["type"].text) {
             "message.start" -> ensureAssistantTurn()
             "message.delta" -> {
@@ -193,6 +200,43 @@ class BotChatViewModel(
                 if (!message.isNullOrEmpty()) _state.value = _state.value.copy(error = message)
             }
         }
+    }
+
+    /**
+     * One server request: today only `approval` is answerable here. Anything
+     * else parks the bot too, so it shows as waiting rather than silently
+     * passing; the host's Desktop window answers those.
+     */
+    private fun onServerRequest(envelope: BotJson) {
+        if (envelope["method"].text != "approval") {
+            _state.value = _state.value.copy(isRunning = true)
+            return
+        }
+        val approval = BotPendingApproval.fromEnvelope(envelope) ?: return
+        val current = _state.value.pendingApprovals
+        if (current.any { it.requestId == approval.requestId }) return
+        _state.value = _state.value.copy(
+            pendingApprovals = current + approval,
+            isRunning = true,
+        )
+    }
+
+    /** Answers one pending approval and drops its card. */
+    suspend fun answerApproval(requestId: String, choice: String) {
+        val client = client ?: return
+        val runtime = _state.value.runtime ?: return
+        _state.value = _state.value.copy(error = null)
+        try {
+            client.call(HermesCall.ApprovalRespond(runtime, requestId, choice))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            _state.value = _state.value.copy(error = describe(error))
+            return
+        }
+        _state.value = _state.value.copy(
+            pendingApprovals = _state.value.pendingApprovals.filterNot { it.requestId == requestId },
+        )
     }
 
     private fun onDisconnect(error: BotFailure) {

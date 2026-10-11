@@ -109,6 +109,12 @@ fun BotChatRoute(
                         BotChatBubble(message)
                     }
                 }
+                state.pendingApprovals.forEach { approval ->
+                    BotApprovalCard(
+                        approval = approval,
+                        onAnswer = { choice -> scope.launch { viewModel.answerApproval(approval.requestId, choice) } },
+                    )
+                }
                 state.error?.let {
                     Text(
                         it,
@@ -158,6 +164,37 @@ fun BotChatRoute(
                         ) { Text("Redirect") }
                     }
                     Spacer(Modifier.height(4.dp))
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun BotApprovalCard(
+    approval: com.iaeluk.hermex.core.network.bots.BotPendingApproval,
+    onAnswer: (String) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("bots_approval_${approval.requestId}"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("Needs your approval", style = MaterialTheme.typography.labelMedium)
+        approval.command?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        approval.consequence?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            approval.choices.forEach { choice ->
+                OutlinedButton(onClick = { onAnswer(choice) }) {
+                    Text(approval.choiceLabel(choice))
                 }
             }
         }

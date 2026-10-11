@@ -1,5 +1,6 @@
 package com.iaeluk.hermex.core.network.hermes
 
+import com.iaeluk.hermex.core.network.bots.BotApprovalChoice
 import com.iaeluk.hermex.core.network.bots.BotFailure
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -55,6 +56,9 @@ sealed class HermesCall {
     /** Closes the runtime the screen held. */
     data class SessionClose(val runtime: String) : HermesCall()
 
+    /** Answers a pending dangerous-command approval. Choice is the host's vocabulary. */
+    data class ApprovalRespond(val sessionId: String, val requestId: String, val choice: String) : HermesCall()
+
     val method: String
         get() = when (this) {
             is ClientCapabilities -> "client.capabilities"
@@ -70,6 +74,7 @@ sealed class HermesCall {
             is SessionRedirect -> "session.redirect"
             is SessionInterrupt -> "session.interrupt"
             is SessionClose -> "session.close"
+            is ApprovalRespond -> "approval.respond"
         }
 
     companion object {
@@ -142,6 +147,15 @@ sealed class HermesCall {
         is SessionClose -> {
             if (runtime.isBlank()) throw BotFailure.Unsupported
             buildJsonObject { put("session_id", runtime) }
+        }
+        is ApprovalRespond -> {
+            if (sessionId.isBlank() || requestId.isBlank()) throw BotFailure.Unsupported
+            if (choice !in BotApprovalChoice.values) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("session_id", sessionId)
+                put("request_id", requestId)
+                put("choice", choice)
+            }
         }
     }
 
