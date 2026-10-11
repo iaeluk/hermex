@@ -46,6 +46,11 @@ import com.iaeluk.hermex.BuildConfig
 import com.iaeluk.hermex.data.repository.AuthState
 import com.iaeluk.hermex.data.secure.ServerKind
 import com.iaeluk.hermex.ui.bots.BotsChatScreen
+import com.iaeluk.hermex.ui.bots.BotsCreateScreen
+import com.iaeluk.hermex.ui.bots.BotsEditScreen
+import com.iaeluk.hermex.ui.bots.BotsRoomScreen
+import com.iaeluk.hermex.ui.bots.BotsRoomsScreen
+import com.iaeluk.hermex.ui.bots.botsClient
 import com.iaeluk.hermex.ui.bots.BotsHomeList
 import com.iaeluk.hermex.ui.bots.BotsSetupScreen
 import com.iaeluk.hermex.ui.chat.ChatRoute
@@ -342,6 +347,8 @@ fun HermexApp(
                                 },
                                 onOpenSettings = { navController.navigateSingleTop("settings") },
                                 onOpenSetup = { navController.navigateSingleTop("bots-setup") },
+                                onOpenCreate = { navController.navigateSingleTop("bots-create") },
+                                onOpenRooms = { navController.navigateSingleTop("bots-rooms") },
                                 onBack = {},
                             )
                         } else {
@@ -500,6 +507,94 @@ fun HermexApp(
                             container = container,
                             serverId = account.id,
                             profile = profile,
+                            onBack = { navController.popBackStack() },
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    }
+                }
+                composable(route = "bots-create") {
+                    val account = (authState as? AuthState.LoggedIn)?.account
+                    if (account?.kind == ServerKind.HERMES) {
+                        BotsCreateScreen(
+                            container = container,
+                            serverId = account.id,
+                            onSaved = { navController.popBackStack() },
+                            onBack = { navController.popBackStack() },
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    }
+                }
+                composable(
+                    route = "bots-edit/{profile}",
+                    arguments = listOf(navArgument("profile") { type = NavType.StringType }),
+                ) { entry ->
+                    val account = (authState as? AuthState.LoggedIn)?.account
+                    val profile = entry.arguments?.getString("profile")
+                    if (account?.kind == ServerKind.HERMES && profile != null) {
+                        BotsEditScreen(
+                            container = container,
+                            serverId = account.id,
+                            profile = profile,
+                            onSaved = { navController.popBackStack() },
+                            onBack = { navController.popBackStack() },
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    }
+                }
+                composable(route = "bots-rooms") {
+                    val account = (authState as? AuthState.LoggedIn)?.account
+                    if (account?.kind == ServerKind.HERMES) {
+                        BotsRoomsScreen(
+                            container = container,
+                            serverId = account.id,
+                            onOpenRoom = { room -> navController.navigateSingleTop("bots-room/$room") },
+                            onOpenCreate = { navController.navigateSingleTop("bots-room-create") },
+                            onBack = { navController.popBackStack() },
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    }
+                }
+                composable(route = "bots-room-create") {
+                    val account = (authState as? AuthState.LoggedIn)?.account
+                    if (account?.kind == ServerKind.HERMES) {
+                        val scope = rememberCoroutineScope()
+                        com.iaeluk.hermex.ui.bots.BotRoomCreateRoute(
+                            membersHint = "",
+                            onCreate = { name, members ->
+                                scope.launch {
+                                    val client = container.botsClient(account.id) ?: return@launch
+                                    runCatching {
+                                        client.call(
+                                            com.iaeluk.hermex.core.network.hermes.HermesCall.GroupsCreate(
+                                                java.util.UUID.randomUUID().toString(), name, members,
+                                            )
+                                        )
+                                    }
+                                    navController.popBackStack()
+                                }
+                            },
+                            onBack = { navController.popBackStack() },
+                        )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
+                    }
+                }
+                composable(
+                    route = "bots-room/{room}",
+                    arguments = listOf(navArgument("room") { type = NavType.StringType }),
+                ) { entry ->
+                    val account = (authState as? AuthState.LoggedIn)?.account
+                    val room = entry.arguments?.getString("room")
+                    if (account?.kind == ServerKind.HERMES && room != null) {
+                        BotsRoomScreen(
+                            container = container,
+                            serverId = account.id,
+                            roomId = room,
+                            onDisbanded = { navController.popBackStack() },
                             onBack = { navController.popBackStack() },
                         )
                     } else {

@@ -45,6 +45,8 @@ fun BotsInboxRoute(
     viewModel: BotInboxViewModel,
     onOpenChat: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
+    onOpenCreate: () -> Unit = {},
+    onOpenRooms: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -86,6 +88,8 @@ fun BotsInboxRoute(
         ) {
             Text("Bots", style = MaterialTheme.typography.headlineSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onOpenCreate, modifier = Modifier.testTag("bots_inbox_new")) { Text("New") }
+                TextButton(onClick = onOpenRooms, modifier = Modifier.testTag("bots_inbox_rooms")) { Text("Rooms") }
                 TextButton(onClick = onOpenSettings) { Text("Settings") }
                 TextButton(onClick = onBack) { Text("Back") }
             }

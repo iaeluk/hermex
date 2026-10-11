@@ -3,6 +3,8 @@ package com.iaeluk.hermex.core.network.hermes
 import com.iaeluk.hermex.core.network.bots.BotApprovalChoice
 import com.iaeluk.hermex.core.network.bots.BotFailure
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -80,6 +82,41 @@ sealed class HermesCall {
     /** Attaches one file to the session as a data URL. */
     data class FileAttach(val sessionId: String, val name: String, val dataUrl: String) : HermesCall()
 
+    /** Describes one profile (canonical chat, soul, model, face). */
+    data class ProfilesDescribe(val name: String) : HermesCall()
+
+    /** Creates one bot; cloneFrom copies its source's skills. */
+    data class ProfilesCreate(
+        val name: String,
+        val description: String? = null,
+        val cloneFrom: String? = null,
+        val soul: String? = null,
+    ) : HermesCall()
+
+    /** Partial profile save: only non-null fields are sent. */
+    data class ProfilesConfigure(
+        val name: String,
+        val description: String? = null,
+        val soul: String? = null,
+    ) : HermesCall()
+
+    /** Rooms page. */
+    data class GroupsList(val offset: Int = 0) : HermesCall()
+    /** One room's state. */
+    data class GroupsState(val roomId: String) : HermesCall()
+    /** Room history window. */
+    data class GroupsLog(val roomId: String, val sinceSeq: Int = 0, val limit: Int = 50) : HermesCall()
+    /** Sends one room message; eventId dedupes retries. */
+    data class GroupsSend(val roomId: String, val eventId: String, val text: String) : HermesCall()
+    /** Stops room work. */
+    data class GroupsStop(val roomId: String, val cancelId: String) : HermesCall()
+    /** Creates one room with 2-6 members. */
+    data class GroupsCreate(val roomId: String, val name: String, val members: List<String>) : HermesCall()
+    /** Renames one room. */
+    data class GroupsRename(val roomId: String, val eventId: String, val name: String) : HermesCall()
+    /** Disbands one room. */
+    data class GroupsDisband(val roomId: String) : HermesCall()
+
     val method: String
         get() = when (this) {
             is ClientCapabilities -> "client.capabilities"
@@ -103,6 +140,17 @@ sealed class HermesCall {
             is SlashExec -> "slash.exec"
             is CompletePath -> "complete.path"
             is FileAttach -> "file.attach"
+            is ProfilesDescribe -> "profiles.describe"
+            is ProfilesCreate -> "profiles.create"
+            is ProfilesConfigure -> "profiles.configure"
+            is GroupsList -> "groups.list"
+            is GroupsState -> "groups.state"
+            is GroupsLog -> "groups.log"
+            is GroupsSend -> "groups.send"
+            is GroupsStop -> "groups.stop"
+            is GroupsCreate -> "groups.create"
+            is GroupsRename -> "groups.rename"
+            is GroupsDisband -> "groups.disband"
         }
 
     companion object {
@@ -245,6 +293,94 @@ sealed class HermesCall {
                 put("name", name)
                 put("data_url", dataUrl)
             }
+        }
+        is ProfilesDescribe -> {
+            if (name.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject { put("name", name) }
+        }
+        is ProfilesCreate -> {
+            if (name.trim().isEmpty()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("name", name.trim())
+                description?.trim()?.takeIf { it.isNotEmpty() }?.let { put("description", it) }
+                cloneFrom?.trim()?.takeIf { it.isNotEmpty() }?.let { put("clone_from", it) }
+                soul?.trim()?.takeIf { it.isNotEmpty() }?.let { put("soul", it) }
+            }
+        }
+        is ProfilesConfigure -> {
+            if (name.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("name", name)
+                description?.let { put("description", it) }
+                soul?.let { put("soul", it) }
+            }
+        }
+        is GroupsList -> {
+            if (offset < 0) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("limit", 50)
+                put("offset", offset)
+            }
+        }
+        is GroupsState -> {
+            if (roomId.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject { put("room_id", roomId) }
+        }
+        is GroupsLog -> {
+            if (roomId.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("room_id", roomId)
+                put("since_seq", sinceSeq)
+                put("limit", limit)
+            }
+        }
+        is GroupsSend -> {
+            if (roomId.isBlank() || eventId.isBlank() || text.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("room_id", roomId)
+                put("event_id", eventId)
+                put("payload", buildJsonObject {
+                    put("text", text)
+                    put("thread_id", "")
+                })
+            }
+        }
+        is GroupsStop -> {
+            if (roomId.isBlank() || cancelId.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("room_id", roomId)
+                put("cancel_id", cancelId)
+            }
+        }
+        is GroupsCreate -> {
+            if (roomId.isBlank() || name.trim().isEmpty()) throw BotFailure.Unsupported
+            val clean = members.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            if (clean.size < 2 || clean.size > 6) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("room_id", roomId)
+                put("name", name.trim())
+                put("members", buildJsonArray {
+                    clean.forEach { member ->
+                        addJsonObject {
+                            put("member_id", member)
+                            put("profile", member)
+                            put("handle", member)
+                        }
+                    }
+                })
+            }
+        }
+        is GroupsRename -> {
+            if (roomId.isBlank() || eventId.isBlank() || name.trim().isEmpty()) throw BotFailure.Unsupported
+            buildJsonObject {
+                put("room_id", roomId)
+                put("event_id", eventId)
+                put("name", name.trim())
+            }
+        }
+        is GroupsDisband -> {
+            if (roomId.isBlank()) throw BotFailure.Unsupported
+            buildJsonObject { put("room_id", roomId) }
         }
     }
 

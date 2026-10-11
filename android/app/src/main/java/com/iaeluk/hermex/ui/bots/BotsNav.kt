@@ -48,6 +48,8 @@ fun BotsHomeList(
     onOpenChat: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSetup: () -> Unit,
+    onOpenCreate: () -> Unit = {},
+    onOpenRooms: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     val loggedIn = authState as? AuthState.LoggedIn ?: return
@@ -69,8 +71,63 @@ fun BotsHomeList(
         viewModel = viewModel,
         onOpenChat = onOpenChat,
         onOpenSettings = onOpenSettings,
+        onOpenCreate = onOpenCreate,
+        onOpenRooms = onOpenRooms,
         onBack = onBack,
     )
+}
+
+@Composable
+fun BotsCreateScreen(
+    container: AppContainer,
+    serverId: String,
+    onSaved: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val client = container.botsClient(serverId) ?: return
+    val viewModel = remember(serverId) { BotProfileViewModel(clientProvider = { client }) }
+    BotProfileRoute(viewModel = viewModel, title = "New bot", onSaved = onSaved, onBack = onBack)
+}
+
+@Composable
+fun BotsEditScreen(
+    container: AppContainer,
+    serverId: String,
+    profile: String,
+    onSaved: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val client = container.botsClient(serverId) ?: return
+    val viewModel = remember(serverId, profile) {
+        BotProfileViewModel(clientProvider = { client }, existing = profile)
+    }
+    BotProfileRoute(viewModel = viewModel, title = "Edit bot", onSaved = onSaved, onBack = onBack)
+}
+
+@Composable
+fun BotsRoomsScreen(
+    container: AppContainer,
+    serverId: String,
+    onOpenRoom: (String) -> Unit,
+    onOpenCreate: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val client = container.botsClient(serverId) ?: return
+    val viewModel = remember(serverId) { BotRoomsViewModel(clientProvider = { client }) }
+    BotRoomsRoute(viewModel = viewModel, onOpenRoom = onOpenRoom, onOpenCreate = onOpenCreate, onBack = onBack)
+}
+
+@Composable
+fun BotsRoomScreen(
+    container: AppContainer,
+    serverId: String,
+    roomId: String,
+    onDisbanded: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val client = container.botsClient(serverId) ?: return
+    val viewModel = remember(serverId, roomId) { BotRoomViewModel(clientProvider = { client }, roomId = roomId) }
+    BotRoomRoute(viewModel = viewModel, onDisbanded = onDisbanded, onBack = onBack)
 }
 
 @Composable
