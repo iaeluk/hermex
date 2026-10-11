@@ -81,6 +81,32 @@ class HermesConnection(
      */
     var onLoginRejected: (() -> Unit)? = null
 
+    private val unavailableMethodSet = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
+     * Gateway methods the host answered -32601 (method not found) on this connection, so
+     * a control one chat found missing stays off in every chat on it. Recorded by the
+     * gateway; a new connection starts empty.
+     */
+    val unavailableMethods: Set<String> get() = unavailableMethodSet.toSet()
+
+    /** The gateway's report that the host answered [method] with -32601. */
+    fun noteUnavailable(method: String) {
+        unavailableMethodSet.add(method)
+    }
+
+    private var liveGateway: HermesGateway? = null
+
+    /**
+     * The gateway socket every Bot screen on this connection shares. It is made on first
+     * use and kept while a screen holds it.
+     */
+    val gateway: HermesGateway
+        get() = liveGateway ?: HermesGateway(this).also { liveGateway = it }
+
+    /** Opens one gateway socket on this connection's client, so its cookies and headers ride the upgrade. */
+    internal fun openGatewaySocket(request: Request): BotSocket = OkHttpBotSocket.open(standardClient, request)
+
     private val headers = HermesHeaders.saved(connection.headers)
     private val cookieJar = EphemeralCookieJar()
     private val standardClient = buildClient(readWriteSeconds = 15, callSeconds = 30)
@@ -214,6 +240,7 @@ class HermesConnection(
         isRetired = true
         isSignedIn = false
         state = State.Stale
+        liveGateway?.retire()
         scope.cancel()
     }
 
