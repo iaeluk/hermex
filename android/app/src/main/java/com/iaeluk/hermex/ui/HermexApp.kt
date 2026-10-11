@@ -44,15 +44,6 @@ import androidx.navigation.navArgument
 import com.iaeluk.hermex.AppContainer
 import com.iaeluk.hermex.BuildConfig
 import com.iaeluk.hermex.data.repository.AuthState
-import com.iaeluk.hermex.data.secure.ServerKind
-import com.iaeluk.hermex.ui.bots.BotsChatScreen
-import com.iaeluk.hermex.ui.bots.BotsCreateScreen
-import com.iaeluk.hermex.ui.bots.BotsEditScreen
-import com.iaeluk.hermex.ui.bots.BotsRoomScreen
-import com.iaeluk.hermex.ui.bots.BotsRoomsScreen
-import com.iaeluk.hermex.ui.bots.botsClient
-import com.iaeluk.hermex.ui.bots.BotsHomeList
-import com.iaeluk.hermex.ui.bots.BotsSetupScreen
 import com.iaeluk.hermex.ui.chat.ChatRoute
 import com.iaeluk.hermex.ui.git.GitRoute
 import com.iaeluk.hermex.ui.kanban.KanbanLabRoute
@@ -87,9 +78,6 @@ fun HermexApp(
     )
     val hapticsEnabled by container.localSettingsRepository.hapticsEnabled.collectAsStateWithLifecycle(
         initialValue = true,
-    )
-    val botModeEnabled by container.localSettingsRepository.botModeEnabled.collectAsStateWithLifecycle(
-        initialValue = false,
     )
     val localHeaderLogoColorHex by container.localSettingsRepository.headerLogoColorHex.collectAsStateWithLifecycle(
         initialValue = "#FFD700",
@@ -335,24 +323,8 @@ fun HermexApp(
                         selectedConsumesShare = consumeShare
                         selectedAutoStartsVoice = autoStartVoice
                     }
-                    val isHermesServer = activeAccount?.kind == ServerKind.HERMES
                     val sessionList: @Composable () -> Unit = {
-                        if (isHermesServer) {
-                            BotsHomeList(
-                                authState = authState,
-                                container = container,
-                                onOpenChat = { profile ->
-                                    if (usesRegularWidthLayout) selectSession(profile, false, false)
-                                    else navController.navigateSingleTop("bots-chat/$profile")
-                                },
-                                onOpenSettings = { navController.navigateSingleTop("settings") },
-                                onOpenSetup = { navController.navigateSingleTop("bots-setup") },
-                                onOpenCreate = { navController.navigateSingleTop("bots-create") },
-                                onOpenRooms = { navController.navigateSingleTop("bots-rooms") },
-                                onBack = {},
-                            )
-                        } else {
-                            SessionListRoute(
+                        SessionListRoute(
                             authState = authState,
                             container = container,
                             shortcutAction = shortcutAction,
@@ -382,7 +354,6 @@ fun HermexApp(
                                 }
                             },
                         )
-                        }
                     }
                     if (!usesRegularWidthLayout) {
                         sessionList()
@@ -399,14 +370,7 @@ fun HermexApp(
                                 }
                             },
                             detail = {
-                                if (activeAccount?.kind == ServerKind.HERMES && detailSessionId != null) {
-                                    BotsChatScreen(
-                                        container = container,
-                                        serverId = activeServerKey ?: "",
-                                        profile = detailSessionId,
-                                        onBack = { selectedSessionId = null },
-                                    )
-                                } else if (server != null && detailSessionId != null) {
+                                if (server != null && detailSessionId != null) {
                                     ChatRoute(
                                         sessionId = detailSessionId,
                                         serverId = activeServerKey ?: server.toString(),
@@ -476,132 +440,6 @@ fun HermexApp(
                                 navController.navigate("git/${requireNotNull(entry.arguments?.getString("sessionId"))}")
                             },
                         )
-                    }
-                }
-                composable(
-                    route = "bots-setup",
-                ) {
-                    val setupScope = rememberCoroutineScope()
-                    BotsSetupScreen(
-                        container = container,
-                        onDone = { serverId ->
-                            setupScope.launch {
-                                runCatching { container.authRepository.activate(serverId) }
-                                navController.navigate("sessions") {
-                                    popUpTo(navController.graph.id) { inclusive = true }
-                                    launchSingleTop = true
-                                }
-                            }
-                        },
-                        onBack = { navController.popBackStack() },
-                    )
-                }
-                composable(
-                    route = "bots-chat/{profile}",
-                    arguments = listOf(navArgument("profile") { type = NavType.StringType }),
-                    deepLinks = listOf(
-                        navDeepLink { uriPattern = "hermes-agent://bot?profile={profile}" },
-                    ),
-                ) { entry ->
-                    val account = (authState as? AuthState.LoggedIn)?.account
-                    val profile = entry.arguments?.getString("profile")
-                    if (account?.kind == ServerKind.HERMES && profile != null) {
-                        BotsChatScreen(
-                            container = container,
-                            serverId = account.id,
-                            profile = profile,
-                            onBack = { navController.popBackStack() },
-                        )
-                    } else {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
-                    }
-                }
-                composable(route = "bots-create") {
-                    val account = (authState as? AuthState.LoggedIn)?.account
-                    if (account?.kind == ServerKind.HERMES) {
-                        BotsCreateScreen(
-                            container = container,
-                            serverId = account.id,
-                            onSaved = { navController.popBackStack() },
-                            onBack = { navController.popBackStack() },
-                        )
-                    } else {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
-                    }
-                }
-                composable(
-                    route = "bots-edit/{profile}",
-                    arguments = listOf(navArgument("profile") { type = NavType.StringType }),
-                ) { entry ->
-                    val account = (authState as? AuthState.LoggedIn)?.account
-                    val profile = entry.arguments?.getString("profile")
-                    if (account?.kind == ServerKind.HERMES && profile != null) {
-                        BotsEditScreen(
-                            container = container,
-                            serverId = account.id,
-                            profile = profile,
-                            onSaved = { navController.popBackStack() },
-                            onBack = { navController.popBackStack() },
-                        )
-                    } else {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
-                    }
-                }
-                composable(route = "bots-rooms") {
-                    val account = (authState as? AuthState.LoggedIn)?.account
-                    if (account?.kind == ServerKind.HERMES) {
-                        BotsRoomsScreen(
-                            container = container,
-                            serverId = account.id,
-                            onOpenRoom = { room -> navController.navigateSingleTop("bots-room/$room") },
-                            onOpenCreate = { navController.navigateSingleTop("bots-room-create") },
-                            onBack = { navController.popBackStack() },
-                        )
-                    } else {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
-                    }
-                }
-                composable(route = "bots-room-create") {
-                    val account = (authState as? AuthState.LoggedIn)?.account
-                    if (account?.kind == ServerKind.HERMES) {
-                        val scope = rememberCoroutineScope()
-                        com.iaeluk.hermex.ui.bots.BotRoomCreateRoute(
-                            membersHint = "",
-                            onCreate = { name, members ->
-                                scope.launch {
-                                    val client = container.botsClient(account.id) ?: return@launch
-                                    runCatching {
-                                        client.call(
-                                            com.iaeluk.hermex.core.network.hermes.HermesCall.GroupsCreate(
-                                                java.util.UUID.randomUUID().toString(), name, members,
-                                            )
-                                        )
-                                    }
-                                    navController.popBackStack()
-                                }
-                            },
-                            onBack = { navController.popBackStack() },
-                        )
-                    } else {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
-                    }
-                }
-                composable(
-                    route = "bots-room/{room}",
-                    arguments = listOf(navArgument("room") { type = NavType.StringType }),
-                ) { entry ->
-                    val account = (authState as? AuthState.LoggedIn)?.account
-                    val room = entry.arguments?.getString("room")
-                    if (account?.kind == ServerKind.HERMES && room != null) {
-                        BotsRoomScreen(
-                            container = container,
-                            serverId = account.id,
-                            roomId = room,
-                            onDisbanded = { navController.popBackStack() },
-                            onBack = { navController.popBackStack() },
-                        )
-                    } else {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
                     }
                 }
                 composable(
@@ -680,18 +518,15 @@ fun HermexApp(
                     route = "settings",
                     deepLinks = listOf(navDeepLink { uriPattern = ShortcutDestination.SettingsUri }),
                 ) {
-                    val account = (authState as? AuthState.LoggedIn)?.account
                     val server = (authState as? AuthState.LoggedIn)?.server
                     SettingsRoute(
                         authRepository = container.authRepository,
                         localSettingsRepository = container.localSettingsRepository,
                         cacheMaintenanceRepository = container.cacheMaintenanceRepository,
-                        panelsRepository = if (account?.kind == ServerKind.HERMES) null
-                            else server?.let { container.panelsRepository(it) },
+                        panelsRepository = server?.let { container.panelsRepository(it) },
                         authState = authState,
                         onBack = { navController.popBackStack() },
                         onOpenArchivedSessions = { navController.navigateSingleTop("sessions?showArchived=true") },
-                        onOpenBotsSetup = { navController.navigateSingleTop("bots-setup") },
                         onSignedOut = {
                             navController.navigate("onboarding") {
                                 popUpTo(navController.graph.id) { inclusive = true }

@@ -87,7 +87,6 @@
                 <data android:host="new-chat-voice" />
                 <data android:host="new-chat-profile" />
                 <data android:host="chat" />
-                <data android:host="bot" />
                 <data android:host="session" />
                 <data android:host="settings" />
                 <data android:host="panels" />

@@ -77,7 +77,6 @@ data class SettingsUiState(
     val sessionRowDisplaySettings: SessionRowDisplaySettings = SessionRowDisplaySettings(),
     val mainPageDisplaySettings: MainPageDisplaySettings = MainPageDisplaySettings(),
     val responseCompletionNotificationsEnabled: Boolean = false,
-    val botModeEnabled: Boolean = false,
     val hasRequestedResponseCompletionNotificationPermission: Boolean = false,
     val responseCompletionNotificationStatusMessage: String? = null,
     val serverSnapshot: ServerRegistrySnapshot = ServerRegistrySnapshot(),
@@ -298,11 +297,6 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
-            localSettingsRepository.botModeEnabled.collectLatest { enabled ->
-                _state.update { it.copy(botModeEnabled = enabled) }
-            }
-        }
-        viewModelScope.launch {
             localSettingsRepository.hasRequestedResponseCompletionNotificationPermission.collectLatest { requested ->
                 _state.update { it.copy(hasRequestedResponseCompletionNotificationPermission = requested) }
             }
@@ -359,16 +353,6 @@ class SettingsViewModel(
             runSuspendCatching { localSettingsRepository.setTintPrimaryActionsWithThemeColor(enabled) }
                 .onSuccess { _state.update { it.copy(tintPrimaryActionsWithThemeColor = enabled, notice = "Appearance updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update appearance.") } }
-        }
-    }
-
-    fun setBotModeEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            runSuspendCatching { localSettingsRepository.setBotModeEnabled(enabled) }
-                .onSuccess { _state.update { it.copy(botModeEnabled = enabled, notice = "Interaction updated.", error = null) } }
-                .onFailure { error ->
-                    _state.update { it.copy(error = error.message ?: "Could not save Bot Mode.") }
-                }
         }
     }
 

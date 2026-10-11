@@ -16,9 +16,7 @@ import com.iaeluk.hermex.data.repository.KanbanRepository
 import com.iaeluk.hermex.data.repository.PanelsRepository
 import com.iaeluk.hermex.data.repository.SessionRepository
 import com.iaeluk.hermex.data.repository.WorkspaceRepository
-import com.iaeluk.hermex.core.network.hermes.HermesConnections
 import com.iaeluk.hermex.data.secure.AndroidSecretStore
-import com.iaeluk.hermex.data.secure.BotConnectionStore
 import com.iaeluk.hermex.data.secure.ServerRegistry
 import com.iaeluk.hermex.data.secure.UnavailableSecretStore
 import com.iaeluk.hermex.data.share.SharedDraftStore
@@ -90,12 +88,6 @@ class AppContainer(private val application: Application) {
             cacheOwnership.invalidateAndClear(serverUrl) { database.cacheDao().clearServer(serverUrl) }
         },
     )
-
-    /** One saved direct-Hermes record per server, in the encrypted secret storage. */
-    val botConnectionStore = BotConnectionStore(secretStore)
-
-    /** One live direct-Hermes connection per server, sharing one gateway socket. */
-    val hermesConnections = HermesConnections()
 
     fun apiClient(baseUrl: HttpUrl): HermesApiClient {
         val authGeneration = authRepository.currentAuthGeneration(baseUrl)

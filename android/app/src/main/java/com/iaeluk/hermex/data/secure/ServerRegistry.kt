@@ -10,19 +10,12 @@ import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl
 
 @Serializable
-enum class ServerKind {
-    WEBUI,
-    HERMES,
-}
-
-@Serializable
 data class ServerAccount(
     val id: String,
     val urlString: String,
     val displayName: String,
     val initials: String,
     val headerLogoColorHex: String = "#FFD700",
-    val kind: ServerKind = ServerKind.WEBUI,
     val customHeadersRef: String? = id,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
     val updatedAtEpochMillis: Long = createdAtEpochMillis,
@@ -52,7 +45,6 @@ class ServerRegistry(
         headerLogoColorHex: String? = null,
         customHeaders: List<CustomHeader>? = null,
         loggedOut: Boolean? = null,
-        kind: ServerKind = ServerKind.WEBUI,
     ): ServerAccount {
         ensureWritable()
         val id = normalizedId(url)
@@ -65,7 +57,6 @@ class ServerRegistry(
                 initials = initials?.trim()?.takeIf { it.isNotBlank() } ?: existing.initials,
                 headerLogoColorHex = headerLogoColorHex?.trim()?.takeIf { it.isNotBlank() }
                     ?: existing.headerLogoColorHex,
-                kind = kind,
                 updatedAtEpochMillis = System.currentTimeMillis(),
             )
             result = updated
@@ -80,7 +71,6 @@ class ServerRegistry(
                 displayName = displayName?.trim()?.takeIf { it.isNotBlank() } ?: url.host,
                 initials = initials?.trim()?.takeIf { it.isNotBlank() } ?: url.host.take(2).uppercase(),
                 headerLogoColorHex = headerLogoColorHex?.trim()?.takeIf { it.isNotBlank() } ?: "#FFD700",
-                kind = kind,
             )
             result = account
             current.copy(servers = current.servers + account, activeServerId = id)

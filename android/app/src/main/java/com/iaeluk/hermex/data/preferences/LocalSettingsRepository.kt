@@ -151,11 +151,6 @@ class LocalSettingsRepository(context: Context) {
         preferences[RESPONSE_COMPLETION_NOTIFICATIONS_ENABLED] ?: false
     }
 
-    /** The beta gate for direct-Hermes servers (Bot Mode); default off, like the iOS port. */
-    val botModeEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
-        preferences[BOT_MODE_ENABLED] ?: false
-    }
-
     val hasRequestedResponseCompletionNotificationPermission: Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[RESPONSE_COMPLETION_NOTIFICATION_PERMISSION_REQUESTED] ?: false
     }
@@ -386,12 +381,6 @@ class LocalSettingsRepository(context: Context) {
         }
     }
 
-    suspend fun setBotModeEnabled(enabled: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[BOT_MODE_ENABLED] = enabled
-        }
-    }
-
     suspend fun setHasRequestedResponseCompletionNotificationPermission(requested: Boolean) {
         dataStore.edit { preferences ->
             preferences[RESPONSE_COMPLETION_NOTIFICATION_PERMISSION_REQUESTED] = requested
@@ -482,7 +471,6 @@ class LocalSettingsRepository(context: Context) {
         val MAIN_PAGE_SHOW_ACTIVE_PROFILE = booleanPreferencesKey("mainPage.showActiveProfile")
         val MAIN_PAGE_SHOW_PROJECTS = booleanPreferencesKey("mainPage.showProjects")
         val RESPONSE_COMPLETION_NOTIFICATIONS_ENABLED = booleanPreferencesKey("responseCompletionNotifications.isEnabled")
-        val BOT_MODE_ENABLED = booleanPreferencesKey("botMode.enabled")
         val RESPONSE_COMPLETION_NOTIFICATION_PERMISSION_REQUESTED = booleanPreferencesKey("responseCompletionNotifications.hasRequestedPermission")
         val FAVORITE_MODEL_KEYS = stringPreferencesKey("chatComposer.favoriteModels")
         val RECENT_MODEL_KEYS = stringPreferencesKey("chatComposer.recentModels")

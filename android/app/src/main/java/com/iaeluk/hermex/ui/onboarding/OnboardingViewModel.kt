@@ -78,7 +78,7 @@ class OnboardingViewModel(
                     _state.update {
                         it.copy(
                             isBusy = false,
-                            message = friendlyConnectionMessage(error),
+                            message = error.message ?: "Connection failed.",
                             messageIsError = true,
                         )
                     }
@@ -96,7 +96,7 @@ class OnboardingViewModel(
                     _state.update { it.copy(isBusy = false, isConnected = true) }
                 }
                 .onFailure { error ->
-                    val message = friendlyConnectionMessage(error, fallback = "Sign in failed.")
+                    val message = error.message ?: "Sign in failed."
                     _state.update {
                         it.copy(
                             isBusy = false,
@@ -108,21 +108,6 @@ class OnboardingViewModel(
                     }
                 }
         }
-    }
-
-    /**
-     * A Hermes dashboard answers webui API paths with its web page, which the
-     * webui client reports as a JSON parse error. Point at Bot Mode instead of
-     * leaking the parser message.
-     */
-    private fun friendlyConnectionMessage(error: Throwable, fallback: String = "Connection failed."): String {
-        val raw = error.message.orEmpty()
-        return if (raw.contains("<!doctype", ignoreCase = true) ||
-            raw.contains("Unexpected JSON token", ignoreCase = true)
-        ) {
-            "This address serves a Hermes dashboard page, not a webui server. " +
-                "Connect it via Settings, Bot Mode, Connect Hermes host."
-        } else raw.ifBlank { fallback }
     }
 
     private fun parseHeadersOrShowMessage(text: String) =
