@@ -3,6 +3,8 @@ package com.iaeluk.hermex.ui.chat
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.content.ContentResolver
+import android.graphics.BitmapFactory
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iaeluk.hermex.core.runSuspendCatching
@@ -110,6 +112,64 @@ internal object StreamRecoveryBackoffPolicy {
 internal object AttachmentLimitPolicy {
     fun remaining(maximum: Int, attached: Int, uploadsInFlight: Int): Int =
         (maximum - attached - uploadsInFlight).coerceAtLeast(0)
+
+    fun occupied(attached: Int, pending: Int, uploadsInFlight: Int): Int =
+        attached + maxOf(pending, uploadsInFlight)
+
+    fun remainingOccupied(maximum: Int, attached: Int, pending: Int, uploadsInFlight: Int): Int =
+        (maximum - occupied(attached, pending, uploadsInFlight)).coerceAtLeast(0)
+
+    fun checkKnownSize(sizeBytes: Long?, maximumBytes: Long) {
+        if (sizeBytes != null) {
+            require(sizeBytes <= maximumBytes) { "Files must be 20 MB or smaller." }
+        }
+    }
+}
+
+internal object PendingUploadStoragePolicy {
+    fun idsToDrop(sizesOldestFirst: List<Pair<String, Long>>, capBytes: Long): List<String> {
+        var total = sizesOldestFirst.sumOf { it.second }
+        val dropped = mutableListOf<String>()
+        var index = 0
+        while (total > capBytes && index < sizesOldestFirst.size) {
+            val (id, size) = sizesOldestFirst[index]
+            dropped += id
+            total -= size
+            index += 1
+        }
+        return dropped
+    }
+}
+
+internal fun resolveAttachmentMime(reportedMimeType: String?, fileName: String?): String? {
+    val reported = reportedMimeType?.trim()?.takeIf { it.contains('/') && it.substringBefore('/').isNotBlank() }
+    if (reported != null) return reported
+    return when (fileName?.substringAfterLast('.', missingDelimiterValue = "")?.lowercase()) {
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "bmp" -> "image/bmp"
+        "heic", "heif" -> "image/heic"
+        "mp4" -> "video/mp4"
+        "mov" -> "video/quicktime"
+        "mp3" -> "audio/mpeg"
+        "m4a" -> "audio/mp4"
+        "wav" -> "audio/wav"
+        "pdf" -> "application/pdf"
+        "zip" -> "application/zip"
+        "json" -> "application/json"
+        "txt", "log" -> "text/plain"
+        "md" -> "text/markdown"
+        else -> null
+    }
+}
+
+internal fun isHeicCandidate(fileName: String?, mimeType: String?): Boolean {
+    val extension = fileName?.substringAfterLast('.', missingDelimiterValue = "")?.lowercase()
+    if (extension == "heic" || extension == "heif") return true
+    val mime = mimeType?.lowercase()?.substringBefore(';')?.trim()
+    return mime == "image/heic" || mime == "image/heif"
 }
 
 internal object ChatDraftPersistencePolicy {
@@ -177,7 +237,7 @@ internal data class PersistedChatPendingState(
 )
 
 @Serializable
-internal data class PendingLocalAttachmentUpload(
+data class PendingLocalAttachmentUpload(
     val id: String = UUID.randomUUID().toString(),
     val cachedPath: String,
     val mimeType: String? = null,
@@ -314,6 +374,7 @@ data class ChatUiState(
     val isLoadingOlderMessages: Boolean = false,
     val attachmentUploadsInFlight: Int = 0,
     val pendingLocalUploadCount: Int = 0,
+    val pendingLocalUploads: List<PendingLocalAttachmentUpload> = emptyList(),
     val isRecordingVoiceNote: Boolean = false,
     val voiceNoteStartedAtMillis: Long? = null,
     val isTranscribingVoiceNote: Boolean = false,
@@ -330,6 +391,8 @@ data class ChatUiState(
     val liveReasoning: String = "",
     val liveToolActivity: String? = null,
     val openSessionId: String? = null,
+    val forkSourceLabel: String? = null,
+    val steeringHint: String? = null,
     val notice: String? = null,
     val error: String? = null,
 ) {
@@ -421,6 +484,7 @@ class ChatViewModel internal constructor(
             pendingAttachments = persisted?.pendingAttachments.orEmpty(),
             attachmentUploadsInFlight = pendingLocalUploads.size,
             pendingLocalUploadCount = pendingLocalUploads.size,
+            pendingLocalUploads = pendingLocalUploads.values.toList(),
         )
         currentBtwTask = persisted?.btwTask ?: BtwTaskRegistry.load(registryKey)
         importedSharedDraftCreatedAtEpochMillis = persisted?.importedSharedDraftCreatedAtEpochMillis
@@ -1151,7 +1215,11 @@ class ChatViewModel internal constructor(
                 }
                 return@launch
             }
-            enqueuePendingLocalAttachment(file, context.contentResolver.getType(uri))
+            val mimeType = resolveAttachmentMime(
+                runCatching { context.contentResolver.getType(uri) }.getOrNull(),
+                file.name,
+            )
+            enqueuePendingLocalAttachment(file, mimeType)
         }
     }
 
@@ -1178,7 +1246,12 @@ class ChatViewModel internal constructor(
     private fun reserveAttachmentSlot(): Boolean {
         var accepted = false
         _state.update {
-            if (it.pendingAttachments.size + pendingLocalUploads.size >= MAXIMUM_MESSAGE_ATTACHMENTS) {
+            val occupied = AttachmentLimitPolicy.occupied(
+                attached = it.pendingAttachments.size,
+                pending = pendingLocalUploads.size,
+                uploadsInFlight = it.attachmentUploadsInFlight,
+            )
+            if (occupied >= MAXIMUM_MESSAGE_ATTACHMENTS) {
                 it.copy(error = "Attach up to $MAXIMUM_MESSAGE_ATTACHMENTS files per message.")
             } else {
                 accepted = true
@@ -1194,9 +1267,35 @@ class ChatViewModel internal constructor(
             mimeType = mimeType,
         )
         pendingLocalUploads[pending.id] = pending
-        _state.update { it.copy(pendingLocalUploadCount = pendingLocalUploads.size) }
+        syncPendingLocalState()
+        enforcePendingStorageCap()
         persistPendingState(durable = true)
         uploadPendingLocalAttachment(pending)
+    }
+
+    private fun syncPendingLocalState() {
+        _state.update {
+            it.copy(
+                pendingLocalUploadCount = pendingLocalUploads.size,
+                pendingLocalUploads = pendingLocalUploads.values.toList(),
+            )
+        }
+    }
+
+    private fun enforcePendingStorageCap() {
+        val ordered = pendingLocalUploads.values.map { it.id to File(it.cachedPath).length() }
+        val drops = PendingUploadStoragePolicy.idsToDrop(ordered, MAXIMUM_PENDING_UPLOAD_BYTES)
+        if (drops.isEmpty()) return
+        drops.forEach { id ->
+            pendingLocalUploads.remove(id)?.let { removed ->
+                runCatching { File(removed.cachedPath).delete() }
+            }
+        }
+        syncPendingLocalState()
+        _state.update {
+            it.copy(notice = "Oldest pending upload was dropped (storage full).")
+        }
+        persistPendingState(durable = true)
     }
 
     private fun resumePendingLocalUploads() {
@@ -1213,6 +1312,7 @@ class ChatViewModel internal constructor(
                 it.copy(
                     attachmentUploadsInFlight = (it.attachmentUploadsInFlight - 1).coerceAtLeast(0),
                     pendingLocalUploadCount = pendingLocalUploads.size,
+                    pendingLocalUploads = pendingLocalUploads.values.toList(),
                     error = "An attachment could not be restored after the app restarted.",
                 )
             }
@@ -1228,6 +1328,7 @@ class ChatViewModel internal constructor(
                     pendingAttachments = it.pendingAttachments + upload,
                     attachmentUploadsInFlight = (it.attachmentUploadsInFlight - 1).coerceAtLeast(0),
                     pendingLocalUploadCount = pendingLocalUploads.size,
+                    pendingLocalUploads = pendingLocalUploads.values.toList(),
                 )
             }
             persistPendingState(durable = true)
@@ -1239,6 +1340,7 @@ class ChatViewModel internal constructor(
                 it.copy(
                     attachmentUploadsInFlight = (it.attachmentUploadsInFlight - 1).coerceAtLeast(0),
                     pendingLocalUploadCount = pendingLocalUploads.size,
+                    pendingLocalUploads = pendingLocalUploads.values.toList(),
                     error = "${error.message ?: "Upload failed."} Tap Retry to try again.",
                 )
             }
@@ -1253,6 +1355,23 @@ class ChatViewModel internal constructor(
         pending.forEach { upload ->
             viewModelScope.launch { uploadPendingLocalAttachment(upload) }
         }
+    }
+
+    fun retryPendingLocalUpload(id: String) {
+        val pending = pendingLocalUploads[id] ?: return
+        if (_state.value.attachmentUploadsInFlight > 0) return
+        _state.update {
+            it.copy(attachmentUploadsInFlight = it.attachmentUploadsInFlight + 1, error = null)
+        }
+        viewModelScope.launch { uploadPendingLocalAttachment(pending) }
+    }
+
+    fun removePendingLocalUpload(id: String) {
+        pendingLocalUploads.remove(id)?.let { removed ->
+            runCatching { File(removed.cachedPath).delete() }
+        }
+        syncPendingLocalState()
+        persistPendingState(durable = true)
     }
 
     fun consumeSharedDraft(
@@ -1304,6 +1423,7 @@ class ChatViewModel internal constructor(
                 draft = if (sharedText.isBlank()) previousState.draft else "${previousState.draft}$separator$sharedText",
                 attachmentUploadsInFlight = previousState.attachmentUploadsInFlight + preparedUploads.size,
                 pendingLocalUploadCount = pendingLocalUploads.size,
+                pendingLocalUploads = pendingLocalUploads.values.toList(),
                 notice = when {
                     sharedText.isNotBlank() && preparedUploads.isNotEmpty() -> "Shared text and ${preparedUploads.size} attachment(s) added."
                     sharedText.isNotBlank() -> "Shared text added to the draft."
@@ -1317,6 +1437,7 @@ class ChatViewModel internal constructor(
                 },
             )
             try {
+                enforcePendingStorageCap()
                 persistPendingState(durable = true)
             } catch (error: Throwable) {
                 preparedUploads.forEach { pendingLocalUploads.remove(it.id) }
@@ -1324,6 +1445,7 @@ class ChatViewModel internal constructor(
                 importedSharedDraftRemainder = previousRemainder
                 _state.value = previousState.copy(
                     pendingLocalUploadCount = pendingLocalUploads.size,
+                    pendingLocalUploads = pendingLocalUploads.values.toList(),
                     error = error.message ?: "Could not save the shared draft.",
                 )
                 preparedUploads.forEach { runCatching { File(it.cachedPath).delete() } }
@@ -1351,10 +1473,11 @@ class ChatViewModel internal constructor(
     }
 
     fun remainingAttachmentSlots(): Int =
-        AttachmentLimitPolicy.remaining(
+        AttachmentLimitPolicy.remainingOccupied(
             maximum = MAXIMUM_MESSAGE_ATTACHMENTS,
             attached = _state.value.pendingAttachments.size,
-            uploadsInFlight = pendingLocalUploads.size,
+            pending = pendingLocalUploads.size,
+            uploadsInFlight = _state.value.attachmentUploadsInFlight,
         )
 
     fun startVoiceNote(recorder: VoiceNoteRecorder) {
@@ -4005,20 +4128,55 @@ class ChatViewModel internal constructor(
         }
 
     private suspend fun copyUriToCache(context: Context, uri: Uri): File = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
         val name = context.displayName(uri) ?: "attachment-${System.currentTimeMillis()}"
-        val safeName = name.replace(Regex("""[^\w.\- ]"""), "_")
-        val file = File(context.cacheDir, "attachment-${System.nanoTime()}-$safeName")
+        AttachmentLimitPolicy.checkKnownSize(resolver.knownSize(uri), MAXIMUM_ATTACHMENT_BYTES)
+        val reportedMime = runCatching { resolver.getType(uri) }.getOrNull()
+        val safeName = name.replace(Regex("""[^\w.\- ]"""), "_").takeIf { it.isNotBlank() } ?: "attachment"
+        var file = File(context.cacheDir, "attachment-${System.nanoTime()}-$safeName")
         var copied = false
         try {
-            context.contentResolver.openInputStream(uri).use { input ->
+            resolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "Could not open attachment." }
                 copyAttachmentWithLimit(input, file, MAXIMUM_ATTACHMENT_BYTES)
             }
+            file = convertHeicToJpegIfNeeded(file, reportedMime)
             copied = true
             file
         } finally {
             if (!copied) runCatching { file.delete() }
         }
+    }
+
+    private fun convertHeicToJpegIfNeeded(file: File, reportedMime: String?): File {
+        if (!isHeicCandidate(file.name, reportedMime)) return file
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+            ?: throw IllegalArgumentException("This photo format is not supported.")
+        val jpeg = File(file.parentFile, "${file.nameWithoutExtension}-converted.jpg")
+        var converted = false
+        try {
+            jpeg.outputStream().buffered().use { output ->
+                require(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, output)) {
+                    "This photo format is not supported."
+                }
+            }
+            converted = true
+            runCatching { file.delete() }
+            return jpeg
+        } finally {
+            bitmap.recycle()
+            if (!converted) runCatching { jpeg.delete() }
+        }
+    }
+
+    private fun ContentResolver.knownSize(uri: Uri): Long? {
+        query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) {
+                return cursor.getLong(index).takeIf { it >= 0 }
+            }
+        }
+        return null
     }
 
     private suspend fun prepareSharedAttachmentUpload(
@@ -4038,9 +4196,12 @@ class ChatViewModel internal constructor(
             } else {
                 copyUriToCache(context, Uri.parse(attachment.uri))
             }
-            val mimeType = attachment.mimeType ?: runCatching {
-                context.contentResolver.getType(Uri.parse(attachment.uri))
-            }.getOrNull()
+            val mimeType = resolveAttachmentMime(
+                attachment.mimeType ?: runCatching {
+                    context.contentResolver.getType(Uri.parse(attachment.uri))
+                }.getOrNull(),
+                file.name,
+            )
             PendingLocalAttachmentUpload(cachedPath = file.absolutePath, mimeType = mimeType)
         }
 
@@ -4127,6 +4288,7 @@ private fun File.isInside(directory: File): Boolean {
         const val STREAMING_MAX_REVEAL_LAG_MS = 1_000L
         const val MAXIMUM_MESSAGE_ATTACHMENTS = 10
         const val MAXIMUM_ATTACHMENT_BYTES = 20L * 1_024L * 1_024L
+        const val MAXIMUM_PENDING_UPLOAD_BYTES = 50L * 1_024L * 1_024L
 
         val PERSONALITY_CLEAR_ARGS = setOf("none", "default", "clear")
         val REASONING_DISPLAY_ARGS = setOf("show", "hide", "on", "off")

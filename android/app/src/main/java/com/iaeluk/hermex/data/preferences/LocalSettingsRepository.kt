@@ -44,7 +44,6 @@ data class ChatDisplaySettings(
     val showsAssistantTurnTimestamps: Boolean = false,
     val rtlChatLayoutEnabled: Boolean = defaultRtlChatLayoutEnabled(),
     val wrapsCodeBlockLines: Boolean = false,
-    val streamedTextAnimationEnabled: Boolean = true,
     val showsStatusNotificationResponseExcerpts: Boolean = false,
     val showsResponseSpeed: Boolean = false,
     val showsChatFilesButton: Boolean = true,
@@ -117,7 +116,6 @@ class LocalSettingsRepository(context: Context) {
             showsAssistantTurnTimestamps = preferences[SHOWS_ASSISTANT_TURN_TIMESTAMPS] ?: false,
             rtlChatLayoutEnabled = preferences[RTL_CHAT_LAYOUT_ENABLED] ?: defaultRtlChatLayoutEnabled(),
             wrapsCodeBlockLines = preferences[WRAPS_CODE_BLOCK_LINES] ?: false,
-            streamedTextAnimationEnabled = preferences[STREAMED_TEXT_ANIMATION_ENABLED] ?: true,
             showsStatusNotificationResponseExcerpts = preferences[SHOWS_STATUS_NOTIFICATION_RESPONSE_EXCERPTS] ?: false,
             showsResponseSpeed = preferences[SHOWS_RESPONSE_SPEED] ?: false,
             showsChatFilesButton = preferences[SHOWS_CHAT_FILES_BUTTON] ?: true,
@@ -301,12 +299,6 @@ class LocalSettingsRepository(context: Context) {
         }
     }
 
-    suspend fun setStreamedTextAnimationEnabled(enabled: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[STREAMED_TEXT_ANIMATION_ENABLED] = enabled
-        }
-    }
-
     suspend fun setShowsStatusNotificationResponseExcerpts(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[SHOWS_STATUS_NOTIFICATION_RESPONSE_EXCERPTS] = enabled
@@ -453,7 +445,6 @@ class LocalSettingsRepository(context: Context) {
         val SHOWS_ASSISTANT_TURN_TIMESTAMPS = booleanPreferencesKey("chatTranscript.showsAssistantTurnTimestamps")
         val RTL_CHAT_LAYOUT_ENABLED = booleanPreferencesKey("chatTranscript.rtlChatLayoutEnabled")
         val WRAPS_CODE_BLOCK_LINES = booleanPreferencesKey("chatTranscript.wrapsCodeBlockLines")
-        val STREAMED_TEXT_ANIMATION_ENABLED = booleanPreferencesKey("chatTranscript.streamedTextAnimationEnabled")
         val SHOWS_STATUS_NOTIFICATION_RESPONSE_EXCERPTS = booleanPreferencesKey("chatTranscript.showsStatusNotificationResponseExcerpts")
         val SHOWS_RESPONSE_SPEED = booleanPreferencesKey("chatTranscript.showsResponseSpeed")
         val SHOWS_CHAT_FILES_BUTTON = booleanPreferencesKey("chatToolbar.showsFilesButton")

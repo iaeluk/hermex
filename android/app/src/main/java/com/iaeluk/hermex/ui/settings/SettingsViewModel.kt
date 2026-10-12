@@ -698,14 +698,6 @@ class SettingsViewModel(
         }
     }
 
-    fun setStreamedTextAnimationEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            runSuspendCatching { localSettingsRepository.setStreamedTextAnimationEnabled(enabled) }
-                .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
-                .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
-        }
-    }
-
     fun setShowsStatusNotificationResponseExcerpts(enabled: Boolean) {
         viewModelScope.launch {
             runSuspendCatching { localSettingsRepository.setShowsStatusNotificationResponseExcerpts(enabled) }

@@ -2193,6 +2193,7 @@ data class InsightsModelBreakdown(
     @SerialName("output_tokens") val outputTokens: Int? = null,
     @SerialName("total_tokens") val totalTokens: Int? = null,
     val cost: Double? = null,
+    val limit: Double? = null,
     @SerialName("cache_hit_percent") val cacheHitPercent: Double? = null,
     @SerialName("session_share") val sessionShare: Int? = null,
     @SerialName("token_share") val tokenShare: Int? = null,

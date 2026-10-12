@@ -36,8 +36,7 @@ fun AnalyticsTimeframe.contains(
     nowMillis: Long = System.currentTimeMillis(),
     zoneId: ZoneId = ZoneId.systemDefault(),
 ): Boolean {
-    if (this == AnalyticsTimeframe.AllTime) return true
-    val timestamp = session.analyticsTimestamp ?: return false
+    val timestamp = session.analyticsTimestamp ?: return this == AnalyticsTimeframe.Past90Days
     val now = Instant.ofEpochMilli(nowMillis)
     val sessionInstant = Instant.ofEpochMilli((timestamp * 1_000.0).toLong())
     return when (this) {
@@ -49,7 +48,8 @@ fun AnalyticsTimeframe.contains(
             !sessionInstant.isAfter(now)
         AnalyticsTimeframe.Last30Days -> !sessionInstant.isBefore(now.minusSeconds(30L * 24L * 60L * 60L)) &&
             !sessionInstant.isAfter(now)
-        AnalyticsTimeframe.AllTime -> true
+        AnalyticsTimeframe.Past90Days -> !sessionInstant.isBefore(now.minusSeconds(90L * 24L * 60L * 60L)) &&
+            !sessionInstant.isAfter(now)
     }
 }
 

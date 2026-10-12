@@ -97,7 +97,7 @@ enum class AnalyticsTimeframe(
     Today("Today", 1),
     Last7Days("Last 7 Days", 7),
     Last30Days("Last 30 Days", 30),
-    AllTime("All Time", 365),
+    Past90Days("Past 90 Days", 90),
 }
 
 data class PanelsUiState(

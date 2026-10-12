@@ -371,14 +371,6 @@ fun SettingsRoute(
                     SettingsFootnote("Thinking and Tool cards start expanded instead of collapsed. Tapping a card still toggles it.")
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = localizedString("Streamed Text Animation"),
-                        iconRes = com.iaeluk.hermex.R.drawable.ic_hermex_sparkles,
-                        value = state.chatDisplaySettings.streamedTextAnimationEnabled,
-                        onValueChange = viewModel::setStreamedTextAnimationEnabled,
-                    )
-                    SettingsFootnote("Fades words in as a response streams. Turn off to show text instantly.")
-                    SettingsDivider()
-                    SettingsToggleRow(
                         label = localizedString("Response Timestamps"),
                         iconRes = com.iaeluk.hermex.R.drawable.ic_hermex_clock,
                         value = state.chatDisplaySettings.showsAssistantTurnTimestamps,

@@ -537,16 +537,24 @@ private fun FocusedInsightsPanel(
                 }
             }
         }
-        if (!insights?.dailyTokens.isNullOrEmpty()) {
-            PanelSectionLabel(localizedString("Recent Daily Tokens"))
+        if (insights?.models.orEmpty().all { it.limit == null }) {
+            PanelSectionLabel(localizedString("Limits"))
             Column(
-                modifier = Modifier.fillMaxWidth().hermexGlass(shape = HermexCardShape, castsShadow = false).padding(horizontal = 18.dp),
+                modifier = Modifier.fillMaxWidth().hermexGlass(shape = HermexCardShape, castsShadow = false).padding(18.dp),
             ) {
-                insights.dailyTokens.orEmpty().takeLast(14).forEachIndexed { index, day ->
-                    DailyTokenPanelRow(day)
-                    if (index < insights.dailyTokens.orEmpty().takeLast(14).lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f))
-                }
+                Text(
+                    localizedString("Limits unavailable."),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
             }
+        }
+        PanelSectionLabel(localizedString("Usage"))
+        Column(
+            modifier = Modifier.fillMaxWidth().hermexGlass(shape = HermexCardShape, castsShadow = false).padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            UsageChartSection(insights = insights, timeframe = selectedTimeframe)
         }
         val peakDay = insights?.activityByDay.orEmpty().maxByOrNull { it.sessions ?: 0 }
         val peakHour = insights?.activityByHour.orEmpty().maxByOrNull { it.sessions ?: 0 }
@@ -1341,13 +1349,18 @@ private fun InsightsPanel(
                     }
                 }
             }
-
-            if (!insights?.dailyTokens.isNullOrEmpty()) {
-                PanelSubsection(localizedString("Recent Daily Tokens")) {
-                    insights.dailyTokens.orEmpty().takeLast(14).forEach { day ->
-                        DailyTokenPanelRow(day)
-                    }
+            if (insights?.models.orEmpty().all { it.limit == null }) {
+                PanelSubsection(localizedString("Limits")) {
+                    Text(
+                        localizedString("Limits unavailable."),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
                 }
+            }
+
+            PanelSubsection(localizedString("Usage")) {
+                UsageChartSection(insights = insights, timeframe = selectedTimeframe)
             }
 
             val peakDay = insights?.activityByDay.orEmpty().maxByOrNull { it.sessions ?: 0 }
@@ -1384,12 +1397,14 @@ private fun InsightsPanel(
     }
 }
 
-private fun InsightsResponse.periodTitle(timeframe: AnalyticsTimeframe): String =
-    if (timeframe == AnalyticsTimeframe.AllTime) {
-        "Last ${periodDays ?: timeframe.serverDays} Days"
+private fun InsightsResponse.periodTitle(timeframe: AnalyticsTimeframe): String {
+    val days = periodDays
+    return if (days != null && days != timeframe.serverDays) {
+        "Last $days Days"
     } else {
         timeframe.title
     }
+}
 
 private fun insightsSourceDescription(
     source: InsightsDataSource,
@@ -1454,20 +1469,210 @@ private fun ModelBreakdownPanelRow(model: InsightsModelBreakdown) {
             overflow = TextOverflow.Ellipsis,
         )
         Text(details.joinToString("  "), style = MaterialTheme.typography.bodySmall, color = PanelSecondaryText)
+        ProviderLimitRow(model)
     }
 }
 
 @Composable
-private fun DailyTokenPanelRow(day: InsightsDailyToken) {
-    val totalTokens = (day.inputTokens ?: 0) + (day.outputTokens ?: 0)
-    val details = buildList {
-        add("${formattedTokens(totalTokens)} tokens")
-        add("${day.sessions ?: 0} sessions")
-        day.cost?.takeIf { it > 0.0 }?.let { add(formattedCost(it)) }
+private fun UsageChartSection(
+    insights: InsightsResponse?,
+    timeframe: AnalyticsTimeframe,
+) {
+    if (timeframe == AnalyticsTimeframe.Today) {
+        val hourly = remember(insights?.activityByHour) {
+            UsageChartPolicy.hourlyBuckets(insights?.activityByHour.orEmpty())
+        }
+        val heroTokens = (insights?.totalInputTokens ?: 0) + (insights?.totalOutputTokens ?: 0)
+        AnalyticsMetricRow(localizedString("Total Tokens"), formattedTokens(heroTokens))
+        AnalyticsMetricRow(localizedString("Estimated Cost"), formattedCost(insights?.totalCost ?: 0.0))
+        if (hourly.all { it.sessions == 0 }) {
+            Text(
+                localizedString("No usage in this window."),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        } else {
+            UsageSessionBars(hourly)
+        }
+        return
     }
-    Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(day.date ?: "Unknown Date", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = PanelPrimaryText)
-        Text(details.joinToString("  "), style = MaterialTheme.typography.bodySmall, color = PanelSecondaryText)
+    var showCost by rememberSaveable(timeframe) { mutableStateOf(false) }
+    val buckets = remember(insights?.dailyTokens, timeframe) {
+        UsageChartPolicy.buckets(insights?.dailyTokens.orEmpty(), timeframe)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        HermexPillButton(
+            label = localizedString("Tokens"),
+            onClick = { showCost = false },
+            filled = !showCost,
+        )
+        HermexPillButton(
+            label = localizedString("Cost"),
+            onClick = { showCost = true },
+            filled = showCost,
+        )
+    }
+    if (showCost) {
+        val totalCost = buckets.sumOf { it.cost }
+        Text(
+            formattedCost(totalCost),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = PanelPrimaryText,
+        )
+    } else {
+        val totalTokens = buckets.sumOf { it.input + it.output }
+        Text(
+            "${formattedTokens(totalTokens)} ${localizedString("tokens")}",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = PanelPrimaryText,
+        )
+    }
+    if (buckets.all { it.input == 0L && it.output == 0L && it.cost == 0.0 }) {
+        Text(
+            localizedString("No usage in this window."),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+    } else if (showCost) {
+        UsageCostBars(buckets)
+    } else {
+        UsageTokenBars(buckets)
+    }
+}
+
+@Composable
+private fun UsageTokenBars(buckets: List<UsageBucket>) {
+    val max = buckets.maxOf { it.input + it.output }.coerceAtLeast(1L)
+    Row(
+        modifier = Modifier.fillMaxWidth().height(140.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        buckets.forEach { bucket ->
+            val total = bucket.input + bucket.output
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                if (total > 0L) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .fillMaxHeight((total.toFloat() / max.toFloat()).coerceIn(0.04f, 1f)),
+                    ) {
+                        if (bucket.output > 0L) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .weight(bucket.output.toFloat())
+                                    .background(Color(0xFFFF9F0A)),
+                            )
+                        }
+                        if (bucket.input > 0L) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .weight(bucket.input.toFloat())
+                                    .background(Color(0xFF30D158)),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+    UsageChartEndLabels(first = buckets.firstOrNull()?.label, last = buckets.lastOrNull()?.label)
+}
+
+@Composable
+private fun UsageCostBars(buckets: List<UsageBucket>) {
+    val max = buckets.maxOf { it.cost }.coerceAtLeast(0.000001)
+    Row(
+        modifier = Modifier.fillMaxWidth().height(140.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        buckets.forEach { bucket ->
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                if (bucket.cost > 0.0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .fillMaxHeight((bucket.cost / max).toFloat().coerceIn(0.04f, 1f))
+                            .background(Color(0xFF5E5CE6)),
+                    )
+                }
+            }
+        }
+    }
+    UsageChartEndLabels(first = buckets.firstOrNull()?.label, last = buckets.lastOrNull()?.label)
+}
+
+@Composable
+private fun UsageSessionBars(hourly: List<UsageHourBucket>) {
+    val max = hourly.maxOf { it.sessions }.coerceAtLeast(1)
+    Row(
+        modifier = Modifier.fillMaxWidth().height(120.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        hourly.forEach { bucket ->
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                if (bucket.sessions > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .fillMaxHeight((bucket.sessions.toFloat() / max.toFloat()).coerceIn(0.06f, 1f))
+                            .background(Color(0xFF0A84FF)),
+                    )
+                }
+            }
+        }
+    }
+    UsageChartEndLabels(first = hourly.firstOrNull()?.label, last = hourly.lastOrNull()?.label)
+}
+
+@Composable
+private fun UsageChartEndLabels(first: String?, last: String?) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(
+            first.orEmpty(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+        Text(
+            last.orEmpty(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+    }
+}
+
+@Composable
+private fun ProviderLimitRow(model: InsightsModelBreakdown) {
+    val limit = model.limit?.takeIf { it > 0.0 } ?: return
+    val used = model.cost ?: 0.0
+    Text(
+        "${formattedCost(used)} of ${formattedCost(limit)}",
+        style = MaterialTheme.typography.bodySmall,
+        color = PanelSecondaryText,
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth((used / limit).toFloat().coerceIn(0f, 1f))
+                .clip(RoundedCornerShape(999.dp))
+                .background(MaterialTheme.colorScheme.primary),
+        )
     }
 }
 

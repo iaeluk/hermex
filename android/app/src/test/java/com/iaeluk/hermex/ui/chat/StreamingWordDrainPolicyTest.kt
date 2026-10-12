@@ -31,4 +31,11 @@ class StreamingWordDrainPolicyTest {
         assertEquals(1, StreamingWordDrainPolicy.drainQuota(4, cadenceMillis = 48, maximumLagMillis = 1_000))
         assertEquals(5, StreamingWordDrainPolicy.drainQuota(100, cadenceMillis = 48, maximumLagMillis = 1_000))
     }
+
+    @Test
+    fun emojiAndLatexDoNotSplitWord() {
+        val (head, tail) = StreamingWordDrainPolicy.splitAtUnitBoundary("hi 👋 there \$x^2\$", 2)
+        assertEquals("hi 👋 ", head)
+        assertEquals("there \$x^2\$", tail)
+    }
 }

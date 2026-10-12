@@ -16,6 +16,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,8 +51,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -89,6 +93,7 @@ fun WorkspaceRoute(
     viewModelKey: String = "workspace:$sessionId",
     repository: WorkspaceRepository,
     onBack: () -> Unit,
+    initialPath: String? = null,
 ) {
     val viewModel: WorkspaceViewModel = viewModel(key = viewModelKey, factory = object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -152,6 +157,9 @@ fun WorkspaceRoute(
         }
     }
 
+    androidx.compose.runtime.LaunchedEffect(initialPath) {
+        if (!initialPath.isNullOrBlank()) viewModel.openInitialPath(initialPath)
+    }
     Box(
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -163,15 +171,8 @@ fun WorkspaceRoute(
         ) {
             WorkspaceHeader(
                 onBack = onBack,
-            )
-            WorkspaceLocationHeader(
-                currentPath = state.currentPath,
-                roots = state.roots,
-                onRoot = viewModel::goRoot,
-                onUp = viewModel::goUp,
-                onOpenPath = viewModel::loadPath,
-                onOpenRoot = viewModel::openRoot,
-                canGoUp = state.currentPath != null,
+                onRefresh = viewModel::refresh,
+                isLoading = state.isLoading,
             )
             WorkspaceSearchBar(
                 searchText = state.searchText,
@@ -181,11 +182,11 @@ fun WorkspaceRoute(
             state.error?.let {
                 Text(localizedString(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
             }
-            val visibleEntries = remember(state.entries, state.searchText) {
-                state.entries.filter { entry -> entry.matchesSearch(state.searchText) }
+            val treeRows = remember(state.roots, state.openFolders, state.folderEntries, state.searchText) {
+                WorkspaceTreePolicy.flattenTree(state.roots, state.openFolders, state.folderEntries, state.searchText)
             }
             when {
-                state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                state.isLoading && state.roots.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(strokeWidth = 2.dp)
                 }
                 state.preview != null || state.isPreviewLoading -> FilePreview(
@@ -232,14 +233,25 @@ fun WorkspaceRoute(
                         }
                     },
                 )
-                visibleEntries.isEmpty() -> EmptyWorkspace(query = state.searchText, currentPath = state.currentPath)
+                treeRows.isEmpty() -> EmptyWorkspace(query = state.searchText)
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    items(visibleEntries.size) { index ->
-                        val entry = visibleEntries[index]
-                        WorkspaceEntryRow(entry = entry, onClick = { viewModel.open(entry) })
+                    items(treeRows.size) { index ->
+                        val row = treeRows[index]
+                        val rowPath = row.entry.path ?: row.entry.name.orEmpty()
+                        val isOpen = state.openFolders.contains(rowPath)
+                        val isLoadingFolder = state.loadingFolders.contains(rowPath)
+                        val folderError = state.folderErrors[rowPath]
+                        WorkspaceTreeRowItem(
+                            row = row,
+                            isOpen = isOpen,
+                            isLoading = isLoadingFolder,
+                            error = folderError,
+                            onClick = { viewModel.open(row.entry) },
+                            onRetry = { viewModel.retryFolder(rowPath) },
+                        )
                     }
                 }
             }
@@ -247,16 +259,11 @@ fun WorkspaceRoute(
     }
 }
 
-private fun WorkspaceEntry.matchesSearch(query: String): Boolean {
-    val trimmed = query.trim()
-    if (trimmed.isBlank()) return true
-    return listOfNotNull(name, path, type)
-        .any { it.contains(trimmed, ignoreCase = true) }
-}
-
 @Composable
 private fun WorkspaceHeader(
     onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    isLoading: Boolean,
 ) {
     Box(
         modifier = Modifier
@@ -270,6 +277,12 @@ private fun WorkspaceHeader(
             modifier = Modifier.align(Alignment.Center),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
+        )
+        HermexPillButton(
+            label = if (isLoading) "…" else "⟳",
+            onClick = onRefresh,
+            modifier = Modifier.align(Alignment.CenterEnd),
+            enabled = !isLoading,
         )
     }
 }
@@ -394,7 +407,52 @@ private fun WorkspaceSearchBar(
 }
 
 @Composable
-private fun WorkspaceEntryRow(entry: WorkspaceEntry, onClick: () -> Unit) {
+private fun WorkspaceTreeRowItem(
+    row: WorkspaceTreeRow,
+    isOpen: Boolean,
+    isLoading: Boolean,
+    error: String?,
+    onClick: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val isDirectory = row.entry.type == "directory" || row.entry.type == "dir" || row.entry.type == "folder"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = (row.depth * 16).dp),
+    ) {
+        WorkspaceEntryRow(entry = row.entry, onClick = onClick, isOpen = isOpen, isLoading = isLoading)
+        if (error != null && isDirectory) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onRetry)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("⚠", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    localizedString("Retry"),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceEntryRow(entry: WorkspaceEntry, onClick: () -> Unit, isOpen: Boolean = false, isLoading: Boolean = false) {
     val isDirectory = entry.type == "directory" || entry.type == "dir" || entry.type == "folder"
     val entryPath = entry.path ?: entry.name
     Row(
@@ -437,14 +495,20 @@ private fun WorkspaceEntryRow(entry: WorkspaceEntry, onClick: () -> Unit) {
                 overflow = TextOverflow.MiddleEllipsis,
             )
         }
-        if (isDirectory) {
-            Text(">", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
+        if (isLoading) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+        } else if (isDirectory) {
+            Text(
+                if (isOpen) "▾" else ">",
+                color = MaterialTheme.colorScheme.secondary,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
 
 @Composable
-private fun EmptyWorkspace(query: String, currentPath: String?) {
+private fun EmptyWorkspace(query: String) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -591,6 +655,12 @@ private fun FilePreview(
             }
             val decodedBitmap = bitmap
             if (decodedBitmap != null) {
+                var imageScale by remember(previewBytes) { mutableStateOf(1f) }
+                var imageOffset by remember(previewBytes) { mutableStateOf(Offset.Zero) }
+                val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
+                    imageScale = (imageScale * zoomChange).coerceIn(1f, 5f)
+                    imageOffset = if (imageScale > 1f) imageOffset + offsetChange else Offset.Zero
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -598,10 +668,27 @@ private fun FilePreview(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     FilePreviewHeader(displayPath, metadata)
+                    if (imageScale > 1f) {
+                        HermexPillButton(
+                            label = localizedString("Reset zoom"),
+                            onClick = {
+                                imageScale = 1f
+                                imageOffset = Offset.Zero
+                            },
+                        )
+                    }
                     Image(
                         bitmap = decodedBitmap.asImageBitmap(),
                         contentDescription = title ?: localizedString("Image"),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer(
+                                scaleX = imageScale,
+                                scaleY = imageScale,
+                                translationX = imageOffset.x,
+                                translationY = imageOffset.y,
+                            )
+                            .transformable(transformState),
                         contentScale = ContentScale.Fit,
                     )
                 }
@@ -614,12 +701,49 @@ private fun FilePreview(
                 )
             }
         } else if (binaryPreview != null) {
-            FileUnavailablePreview(
-                title = "No Preview",
-                message = "Preview is not available for this file type.",
-                path = displayPath,
-                metadata = metadata,
-            )
+            val binary = binaryPreview
+            var openMessage by remember(binary.path) { mutableStateOf<String?>(null) }
+            val knownSize = binary.sizeBytes ?: binary.bytes?.size?.toLong()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FileUnavailablePreview(
+                    title = "No Preview",
+                    message = "Preview is not available for this file type.",
+                    path = displayPath,
+                    metadata = metadata,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HermexPillButton(
+                        label = localizedString("Open"),
+                        onClick = {
+                            val data = binary.bytes
+                            when {
+                                knownSize != null && !WorkspaceFilePreviewPolicy.canOpenExternally(knownSize) ->
+                                    openMessage = "File is larger than 25 MB."
+                                data == null -> openMessage = "File content is not loaded."
+                                else -> scope.launch {
+                                    openMessage = withContext(Dispatchers.IO) {
+                                        openWorkspaceFileExternally(context, displayPath, data, binary.mimeType)
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !isLoading && (binary.bytes != null || knownSize != null),
+                        filled = true,
+                    )
+                }
+                openMessage?.let { message ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+            }
         } else {
             Column(
                 modifier = Modifier
@@ -633,6 +757,14 @@ private fun FilePreview(
                 if (content != null && WorkspaceFilePreviewPolicy.isMarkdown(displayPath)) {
                     MarkdownText(
                         markdown = content,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else if (content != null && WorkspaceFilePreviewPolicy.codeLanguage(displayPath) != null) {
+                    MarkdownText(
+                        markdown = WorkspaceFilePreviewPolicy.fencedSourceBlock(
+                            content,
+                            WorkspaceFilePreviewPolicy.codeLanguage(displayPath),
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 } else {
@@ -826,4 +958,36 @@ private suspend fun shareWorkspacePreview(
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     context.startActivity(Intent.createChooser(intent, "Share File"))
+}
+
+private fun openWorkspaceFileExternally(
+    context: Context,
+    sourcePath: String,
+    bytes: ByteArray,
+    mimeType: String,
+): String {
+    return try {
+        val fileName = WorkspaceFilePreviewPolicy.displayName(sourcePath)
+            .ifBlank { "workspace-file" }
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .take(96)
+            .takeIf { it != "." && it != ".." }
+            ?: "workspace-file"
+        val exportDir = context.createExportDirectory("workspace")
+        val file = File(exportDir, fileName)
+        file.writeBytes(bytes)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType.ifBlank { "application/octet-stream" })
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(
+            Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        "Opening in another app."
+    } catch (error: android.content.ActivityNotFoundException) {
+        "No app can open this file."
+    } catch (error: Throwable) {
+        "Could not open file: ${error.localizedMessage ?: "Unknown error."}"
+    }
 }

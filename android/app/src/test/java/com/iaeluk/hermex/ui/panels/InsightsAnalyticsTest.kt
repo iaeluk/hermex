@@ -54,7 +54,9 @@ class InsightsAnalyticsTest {
         assertFalse(AnalyticsTimeframe.Today.contains(lastWeek, nowMillis = now, zoneId = zone))
         assertTrue(AnalyticsTimeframe.Last7Days.contains(lastWeek, nowMillis = now, zoneId = zone))
         assertFalse(AnalyticsTimeframe.Last30Days.contains(older, nowMillis = now, zoneId = zone))
-        assertTrue(AnalyticsTimeframe.AllTime.contains(older, nowMillis = now, zoneId = zone))
+        assertTrue(AnalyticsTimeframe.Past90Days.contains(older, nowMillis = now, zoneId = zone))
+        val ancient = SessionSummary(updatedAt = Instant.parse("2026-01-01T01:00:00Z").epochSecondsDouble())
+        assertFalse(AnalyticsTimeframe.Past90Days.contains(ancient, nowMillis = now, zoneId = zone))
     }
 
     @Test
@@ -62,7 +64,7 @@ class InsightsAnalyticsTest {
         val analytics = listOf(
             SessionSummary(inputTokens = Int.MAX_VALUE, outputTokens = Int.MAX_VALUE),
             SessionSummary(inputTokens = Int.MAX_VALUE, outputTokens = Int.MAX_VALUE),
-        ).analyticsFor(AnalyticsTimeframe.AllTime, nowMillis = now, zoneId = zone)
+        ).analyticsFor(AnalyticsTimeframe.Past90Days, nowMillis = now, zoneId = zone)
 
         assertEquals(Int.MAX_VALUE.toLong() * 2L, analytics.totalInputTokens)
         assertEquals(Int.MAX_VALUE.toLong() * 4L, analytics.totalTokens)

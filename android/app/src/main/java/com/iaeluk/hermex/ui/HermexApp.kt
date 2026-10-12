@@ -386,6 +386,9 @@ fun HermexApp(
                                         onOpenChat = { sessionId -> selectSession(sessionId, false, false) },
                                         onBack = { selectedSessionId = null },
                                         onOpenWorkspace = { navController.navigate("workspace/$detailSessionId") },
+                                        onOpenWorkspacePath = { path ->
+                                            navController.navigate("workspace/$detailSessionId?initialPath=${Uri.encode(path)}")
+                                        },
                                         onOpenGit = { navController.navigate("git/$detailSessionId") },
                                     )
                                 } else {
@@ -436,6 +439,9 @@ fun HermexApp(
                             onOpenWorkspace = {
                                 navController.navigate("workspace/${requireNotNull(entry.arguments?.getString("sessionId"))}")
                             },
+                            onOpenWorkspacePath = { path ->
+                                navController.navigate("workspace/${requireNotNull(entry.arguments?.getString("sessionId"))}?initialPath=${Uri.encode(path)}")
+                            },
                             onOpenGit = {
                                 navController.navigate("git/${requireNotNull(entry.arguments?.getString("sessionId"))}")
                             },
@@ -443,8 +449,15 @@ fun HermexApp(
                     }
                 }
                 composable(
-                    route = "workspace/{sessionId}",
-                    arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+                    route = "workspace/{sessionId}?initialPath={initialPath}",
+                    arguments = listOf(
+                        navArgument("sessionId") { type = NavType.StringType },
+                        navArgument("initialPath") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        },
+                    ),
                 ) { entry ->
                     val server = (authState as? AuthState.LoggedIn)?.server
                     if (server != null) {
@@ -453,6 +466,7 @@ fun HermexApp(
                             viewModelKey = "workspace:$activeServerKey:${entry.arguments?.getString("sessionId")}",
                             repository = container.workspaceRepository(server),
                             onBack = { navController.popBackStack() },
+                            initialPath = entry.arguments?.getString("initialPath"),
                         )
                     }
                 }

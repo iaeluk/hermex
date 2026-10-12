@@ -23,8 +23,8 @@ android {
         applicationId = "com.iaeluk.hermex"
         minSdk = 26
         targetSdk = 36
-        versionCode = 38
-        versionName = "1.2.0"
+        versionCode = 39
+        versionName = "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

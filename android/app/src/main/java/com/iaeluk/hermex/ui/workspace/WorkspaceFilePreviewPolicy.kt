@@ -64,6 +64,42 @@ object WorkspaceFilePreviewPolicy {
 
     fun shouldLoadRawPreview(path: String?): Boolean = isRasterImage(path)
 
+    const val MAXIMUM_EXTERNAL_OPEN_BYTES = 25L * 1024 * 1024
+
+    fun shouldOpenExternally(sizeBytes: Long): Boolean = sizeBytes > MAXIMUM_EXTERNAL_OPEN_BYTES
+
+    fun canOpenExternally(sizeBytes: Long): Boolean = sizeBytes <= MAXIMUM_EXTERNAL_OPEN_BYTES
+
+    fun codeLanguage(path: String?): String? = when (extension(path)) {
+        "kt", "kts" -> "kotlin"
+        "java" -> "java"
+        "py" -> "python"
+        "js", "mjs", "cjs", "jsx" -> "javascript"
+        "ts", "tsx" -> "typescript"
+        "rb" -> "ruby"
+        "go" -> "go"
+        "rs" -> "rust"
+        "c", "h" -> "c"
+        "cpp", "cc", "hpp" -> "cpp"
+        "cs" -> "csharp"
+        "swift" -> "swift"
+        "css" -> "css"
+        "sql" -> "sql"
+        "json" -> "json"
+        "xml", "html", "htm" -> "markup"
+        "yaml", "yml" -> "yaml"
+        "md", "markdown", "mdown", "mkd" -> "markdown"
+        "sh" -> "bash"
+        "toml", "ini", "gradle", "properties", "log", "txt", "diff", "patch" -> null
+        else -> null
+    }
+
+    fun fencedSourceBlock(content: String, language: String?): String {
+        var fence = "```"
+        while (content.lines().any { it.trimStart().startsWith(fence) }) fence += "`"
+        return "$fence${language.orEmpty()}\n$content\n$fence"
+    }
+
     fun badgeLabel(path: String?, isDirectory: Boolean = false): String {
         if (isDirectory) return "DIR"
         return when (val extension = extension(path)) {

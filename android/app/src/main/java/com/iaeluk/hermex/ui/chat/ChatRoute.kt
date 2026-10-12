@@ -1,10 +1,12 @@
 package com.iaeluk.hermex.ui.chat
 
 import android.Manifest
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
@@ -13,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.view.HapticFeedbackConstants
+import android.view.WindowManager
 import android.widget.MediaController
 import android.widget.Toast
 import android.widget.VideoView
@@ -251,6 +254,7 @@ fun ChatRoute(
     onOpenChat: (String) -> Unit = {},
     onBack: () -> Unit,
     onOpenWorkspace: () -> Unit,
+    onOpenWorkspacePath: (String) -> Unit = {},
     onOpenGit: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -422,6 +426,21 @@ fun ChatRoute(
     var isVoiceDictationTranscribing by remember { mutableStateOf(false) }
     var voiceDictationError by rememberSaveable { mutableStateOf<String?>(null) }
     var voiceDictationBaseDraft by rememberSaveable { mutableStateOf("") }
+    val keepScreenAwakeForAudio = state.isRecordingVoiceNote || isVoiceDictating || isVoiceDictationTranscribing
+    DisposableEffect(keepScreenAwakeForAudio) {
+        val activity = context as? Activity
+        val window = activity?.window
+        if (keepScreenAwakeForAudio) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (keepScreenAwakeForAudio) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
     lateinit var finishServerDictation: () -> Unit
     finishServerDictation = {
         if (!dictationRecorder.isRecording || isVoiceDictationTranscribing) {
@@ -943,7 +962,18 @@ fun ChatRoute(
                             visibleIndex = index,
                             messagesOffset = state.messagesOffset,
                         )
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                        Column(
+                            modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            val forkSourceLabel = state.forkSourceLabel
+                            if (index == 0 && forkSourceLabel != null) {
+                                ForkedFromRow(label = forkSourceLabel)
+                            }
                             if (chatDisplaySettings.showThinkingAndToolCards) {
                                 completedToolGroups.forEach { group ->
                                     CompletedToolActivityCard(
@@ -963,9 +993,9 @@ fun ChatRoute(
                                     showsAssistantTurnTimestamps = chatDisplaySettings.showsAssistantTurnTimestamps,
                                     showsResponseSpeed = chatDisplaySettings.showsResponseSpeed,
                                     wrapsCodeBlockLines = chatDisplaySettings.wrapsCodeBlockLines,
-                                    streamedTextAnimationEnabled = chatDisplaySettings.streamedTextAnimationEnabled,
                                     loadTranscriptMediaImage = viewModel::transcriptMediaThumbnailData,
                                     loadAttachmentFile = viewModel::attachmentTextFile,
+                                    onOpenWorkspacePath = onOpenWorkspacePath,
                                     actionContext = actionContext,
                                     isListening = listenPlaybackState.activeMessageId == actionContext?.messageId,
                                     messageActionEnabled = !state.isViewingCachedData && !state.isStreaming && !state.isRunningSessionAction,
@@ -1014,6 +1044,10 @@ fun ChatRoute(
                                     },
                                 )
                             }
+                            state.steeringHint?.let { hint ->
+                                SteeringHintRow(text = hint)
+                            }
+                        }
                         }
                     }
                     if (chatDisplaySettings.showThinkingAndToolCards && state.liveReasoning.isNotBlank()) {
@@ -1150,6 +1184,9 @@ fun ChatRoute(
                             onRemoveAttachment = viewModel::removeAttachment,
                             loadAttachmentImage = viewModel::attachmentImageData,
                             loadAttachmentFile = viewModel::attachmentTextFile,
+                            pendingLocalUploads = state.pendingLocalUploads,
+                            onRetryPendingUpload = viewModel::retryPendingLocalUpload,
+                            onRemovePendingUpload = viewModel::removePendingLocalUpload,
                         )
                     }
                 }
@@ -1413,6 +1450,73 @@ private fun ComposerAttachmentStrip(
                 loadAttachmentImage = loadAttachmentImage,
             )
         }
+    }
+}
+
+@Composable
+private fun PendingLocalUploadStrip(
+    pending: List<PendingLocalAttachmentUpload>,
+    isUploading: Boolean,
+    onRetry: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        pending.forEach { item ->
+            PendingLocalUploadTile(
+                item = item,
+                isUploading = isUploading,
+                onRetry = { onRetry(item.id) },
+                onRemove = { onRemove(item.id) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PendingLocalUploadTile(
+    item: PendingLocalAttachmentUpload,
+    isUploading: Boolean,
+    onRetry: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val file = remember(item.id, item.cachedPath) { File(item.cachedPath) }
+    val sizeText = remember(item.id, item.cachedPath) {
+        file.takeIf { it.isFile }?.length()?.formatBytesOrUnavailable() ?: "Unavailable"
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = file.name.ifBlank { "Attachment" },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = sizeText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        HermexPillButton(
+            label = localizedString("Retry"),
+            onClick = onRetry,
+            enabled = !isUploading,
+        )
+        HermexIconButton(
+            label = localizedString("Remove attachment"),
+            symbol = "X",
+            onClick = onRemove,
+        )
     }
 }
 
@@ -1805,7 +1909,12 @@ private fun ChatStatusStack(
     ) {
         if (state.isViewingCachedData) InlineNotice("Offline cache")
         state.activeStreamRecoveryLabel?.let { recoveryLabel ->
-            StreamRecoveryStatusPill(recoveryLabel)
+            val shownLabel = if (state.activeStreamRecoveryState == ActiveStreamRecoveryState.Checking) {
+                localizedString("Waiting for network")
+            } else {
+                recoveryLabel
+            }
+            StreamRecoveryStatusPill(shownLabel)
         }
         if (!state.isRecoveringStream) {
             state.notice?.let { InlineNotice(it) }
@@ -2037,6 +2146,28 @@ private fun ChatTranscriptEmptyState() {
 }
 
 @Composable
+private fun ForkedFromRow(label: String) {
+    Text(
+        text = localizedString("Forked from") + " " + label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.secondary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun SteeringHintRow(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.secondary,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
 private fun StreamRecoveryStatusPill(label: String) {
     Row(
         modifier = Modifier
@@ -2206,6 +2337,9 @@ private fun ComposerSurface(
     onRemoveAttachment: (UploadResponse) -> Unit,
     loadAttachmentImage: suspend (String) -> ByteArray?,
     loadAttachmentFile: suspend (String) -> FileResponse?,
+    pendingLocalUploads: List<PendingLocalAttachmentUpload> = emptyList(),
+    onRetryPendingUpload: (String) -> Unit = {},
+    onRemovePendingUpload: (String) -> Unit = {},
 ) {
     var previewAttachment by remember { mutableStateOf<UploadResponse?>(null) }
     val messageDescription = localizedString("message").replaceFirstChar { character ->
@@ -2278,6 +2412,14 @@ private fun ComposerSurface(
                     loadAttachmentImage = loadAttachmentImage,
                 )
             }
+            if (pendingLocalUploads.isNotEmpty()) {
+                PendingLocalUploadStrip(
+                    pending = pendingLocalUploads,
+                    isUploading = state.isUploadingAttachment,
+                    onRetry = onRetryPendingUpload,
+                    onRemove = onRemovePendingUpload,
+                )
+            }
             BasicTextField(
                 value = state.draft,
                 onValueChange = onDraftChange,
@@ -2336,7 +2478,8 @@ private fun ComposerSurface(
                     label = localizedString("Attach"),
                     iconRes = com.iaeluk.hermex.R.drawable.ic_hermex_plus,
                     onClick = onAttach,
-                    enabled = !state.isUploadingAttachment && !state.isStreaming && !state.isViewingCachedData,
+                    enabled = !state.isUploadingAttachment && !state.isStreaming && !state.isViewingCachedData &&
+                        (state.pendingAttachments.size + state.pendingLocalUploads.size < SharedDraftPolicy.MAXIMUM_SHARED_ATTACHMENT_COUNT),
                 )
                 HermexSelectorPill(
                     label = state.selectedModel?.label ?: state.selectedModel?.name ?: state.selectedModel?.id ?: "Model",
@@ -3842,9 +3985,9 @@ private fun MessageRow(
     showsAssistantTurnTimestamps: Boolean,
     showsResponseSpeed: Boolean,
     wrapsCodeBlockLines: Boolean,
-    streamedTextAnimationEnabled: Boolean,
     loadTranscriptMediaImage: suspend (TranscriptMediaReference) -> ByteArray?,
     loadAttachmentFile: suspend (String) -> FileResponse?,
+    onOpenWorkspacePath: (String) -> Unit = {},
     actionContext: MessageActionContext?,
     isListening: Boolean,
     messageActionEnabled: Boolean,
@@ -3890,10 +4033,17 @@ private fun MessageRow(
                     )
                 }
                 if (visibleText.isNotBlank() || attachments.isEmpty()) {
+                    val foldsMessage = remember(visibleText) { TranscriptFoldPolicy.shouldFold(visibleText) }
+                    var messageExpanded by remember(visibleText) { mutableStateOf(!foldsMessage) }
                     UserMessageBubble(
-                        text = visibleText.ifBlank { "(empty)" },
+                        text = if (messageExpanded) visibleText.ifBlank { "(empty)" } else TranscriptFoldPolicy.foldedPreview(visibleText),
                         onShowActions = { showsMessageActions = true },
                     )
+                    if (foldsMessage) {
+                        TextButton(onClick = { messageExpanded = !messageExpanded }) {
+                            Text(localizedString(if (messageExpanded) "Collapse" else "Expand"))
+                        }
+                    }
                 }
                 linkPreviewUrl?.let { url ->
                     TranscriptLinkPreviewCard(url = url)
@@ -3927,11 +4077,11 @@ private fun MessageRow(
             showsAssistantTurnTimestamp = showsAssistantTurnTimestamps,
             showsResponseSpeed = showsResponseSpeed,
             wrapsCodeBlockLines = wrapsCodeBlockLines,
-            streamedTextAnimationEnabled = streamedTextAnimationEnabled,
             linkPreviewUrl = linkPreviewUrl,
             loadTranscriptMediaImage = loadTranscriptMediaImage,
             onPreviewAttachment = { previewAttachment = it },
             onPreviewTranscriptMedia = { previewTranscriptMedia = it },
+            onOpenWorkspacePath = onOpenWorkspacePath,
             onShowActions = { showsMessageActions = true },
         )
     }
@@ -4185,11 +4335,11 @@ private fun AssistantMessageRow(
     showsAssistantTurnTimestamp: Boolean,
     showsResponseSpeed: Boolean,
     wrapsCodeBlockLines: Boolean,
-    streamedTextAnimationEnabled: Boolean,
     linkPreviewUrl: HttpUrl?,
     loadTranscriptMediaImage: suspend (TranscriptMediaReference) -> ByteArray?,
     onPreviewAttachment: (MessageAttachment) -> Unit,
     onPreviewTranscriptMedia: (TranscriptMediaReference) -> Unit,
+    onOpenWorkspacePath: (String) -> Unit = {},
     onShowActions: () -> Unit,
 ) {
     val hasHiddenCards = !showThinkingAndToolCards && (reasoningTexts.isNotEmpty() || tools.isNotEmpty())
@@ -4228,22 +4378,37 @@ private fun AssistantMessageRow(
                     tokensPerSecond = tokensPerSecond.takeIf { showsResponseSpeed },
                 )
             }
+            val showsTableFade = remember(visibleText) { TranscriptTablePolicy.hasTable(visibleText) }
+            Box(modifier = Modifier.fillMaxWidth()) {
             if (containsTranscriptMedia) {
                 TranscriptMediaContentView(
                     segments = transcriptMediaSegments,
                     loadMediaImage = loadTranscriptMediaImage,
                     onPreviewMedia = onPreviewTranscriptMedia,
+                    onOpenWorkspacePath = onOpenWorkspacePath,
                     wrapsCodeBlockLines = wrapsCodeBlockLines,
                     isStreaming = isStreamingMessage,
-                    streamedTextAnimationEnabled = streamedTextAnimationEnabled,
                 )
             } else {
                 MarkdownText(
                     markdown = visibleText,
                     wrapsCodeBlockLines = wrapsCodeBlockLines,
                     isStreaming = isStreamingMessage,
-                    streamedTextAnimationEnabled = streamedTextAnimationEnabled,
                 )
+            }
+            if (showsTableFade) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(12.dp)
+                        .fillMaxHeight()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color.Transparent, MaterialTheme.colorScheme.surface),
+                            ),
+                        ),
+                )
+            }
             }
         } else if (attachments.isEmpty() && reasoningTexts.isEmpty() && tools.isEmpty()) {
             MarkdownText("(empty)")
@@ -4267,9 +4432,9 @@ private fun TranscriptMediaContentView(
     segments: List<TranscriptMediaSegment>,
     loadMediaImage: suspend (TranscriptMediaReference) -> ByteArray?,
     onPreviewMedia: (TranscriptMediaReference) -> Unit,
+    onOpenWorkspacePath: (String) -> Unit = {},
     wrapsCodeBlockLines: Boolean,
     isStreaming: Boolean,
-    streamedTextAnimationEnabled: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         segments.forEach { segment ->
@@ -4280,7 +4445,6 @@ private fun TranscriptMediaContentView(
                             markdown = segment.text,
                             wrapsCodeBlockLines = wrapsCodeBlockLines,
                             isStreaming = isStreaming,
-                            streamedTextAnimationEnabled = streamedTextAnimationEnabled,
                         )
                     }
                 }
@@ -4290,6 +4454,7 @@ private fun TranscriptMediaContentView(
                             reference = segment.reference,
                             loadMediaImage = loadMediaImage,
                             onPreviewMedia = onPreviewMedia,
+                            onOpenWorkspacePath = onOpenWorkspacePath,
                         )
                     }
                 }
@@ -4303,6 +4468,7 @@ private fun TranscriptMediaThumbnailView(
     reference: TranscriptMediaReference,
     loadMediaImage: suspend (TranscriptMediaReference) -> ByteArray?,
     onPreviewMedia: (TranscriptMediaReference) -> Unit,
+    onOpenWorkspacePath: (String) -> Unit = {},
 ) {
     when (reference.mediaKind) {
         TranscriptMediaKind.Audio -> {
@@ -4323,6 +4489,7 @@ private fun TranscriptMediaThumbnailView(
             TranscriptMediaFileDownloadView(
                 reference = reference,
                 loadMediaData = loadMediaImage,
+                onOpenWorkspacePath = onOpenWorkspacePath,
             )
             return
         }
@@ -4405,6 +4572,7 @@ private fun TranscriptMediaThumbnailView(
                 reference = reference,
                 initialData = bytes,
                 loadMediaData = loadMediaImage,
+                onOpenWorkspacePath = onOpenWorkspacePath,
             )
         }
         didAttemptLoad -> TranscriptMediaUnavailableChip(reference = reference)
@@ -4496,12 +4664,21 @@ private fun TranscriptMediaFileDownloadView(
     reference: TranscriptMediaReference,
     loadMediaData: suspend (TranscriptMediaReference) -> ByteArray?,
     initialData: ByteArray? = null,
+    onOpenWorkspacePath: (String) -> Unit = {},
 ) {
     val shape = RoundedCornerShape(8.dp)
+    val localPath = (reference.source as? TranscriptMediaSource.LocalPath)?.path
     Row(
         modifier = Modifier
             .widthIn(max = 300.dp)
             .clip(shape)
+            .then(
+                if (localPath != null) {
+                    Modifier.clickable { onOpenWorkspacePath(localPath) }
+                } else {
+                    Modifier
+                },
+            )
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
             .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape)
             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -4523,7 +4700,7 @@ private fun TranscriptMediaFileDownloadView(
                 overflow = TextOverflow.MiddleEllipsis,
             )
             Text(
-                localizedString("Tap to download"),
+                if (localPath != null) localizedString("Tap to open in Files") else localizedString("Tap to download"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -5293,6 +5470,14 @@ private fun LiveToolActivityCard(
 @Composable
 private fun AssistantTypingIndicator() {
     val typingDescription = localizedString("Hermex is preparing a response")
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        val startedAt = System.currentTimeMillis()
+        while (true) {
+            delay(1000)
+            elapsedSeconds = ((System.currentTimeMillis() - startedAt) / 1000L).toInt().coerceAtLeast(0)
+        }
+    }
     val transition = rememberInfiniteTransition(label = "assistant-typing")
     val scale by transition.animateFloat(
         initialValue = 0.86f,
@@ -5313,11 +5498,12 @@ private fun AssistantTypingIndicator() {
         label = "assistant-typing-opacity",
     )
     val dotColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .semantics { contentDescription = typingDescription },
-        contentAlignment = Alignment.CenterStart,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
@@ -5330,6 +5516,11 @@ private fun AssistantTypingIndicator() {
                 }
                 .clip(CircleShape)
                 .background(dotColor),
+        )
+        Text(
+            text = "Working… ${elapsedSeconds}s",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
         )
     }
 }

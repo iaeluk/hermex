@@ -1,15 +1,12 @@
 package com.iaeluk.hermex.ui.chat
 
-import android.animation.ValueAnimator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
-import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
-import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.widget.TextView
 import androidx.compose.foundation.background
@@ -83,23 +80,16 @@ fun MarkdownText(
     modifier: Modifier = Modifier,
     wrapsCodeBlockLines: Boolean = true,
     isStreaming: Boolean = false,
-    streamedTextAnimationEnabled: Boolean = false,
 ) {
     var usesStreamingRenderer by remember { mutableStateOf(isStreaming) }
     LaunchedEffect(isStreaming) {
-        if (isStreaming) {
-            usesStreamingRenderer = true
-        } else if (usesStreamingRenderer) {
-            delay(STREAMING_SUFFIX_FADE_DURATION_MILLIS)
-            usesStreamingRenderer = false
-        }
+        usesStreamingRenderer = isStreaming
     }
     if (usesStreamingRenderer) {
         StreamingStructuredMarkdown(
             markdown = markdown,
             modifier = modifier,
             wrapsCodeBlockLines = wrapsCodeBlockLines,
-            streamedTextAnimationEnabled = streamedTextAnimationEnabled,
         )
         return
     }
@@ -107,8 +97,6 @@ fun MarkdownText(
         markdown = markdown,
         modifier = modifier,
         wrapsCodeBlockLines = wrapsCodeBlockLines,
-        isStreaming = false,
-        streamedTextAnimationEnabled = streamedTextAnimationEnabled,
     )
 }
 
@@ -117,8 +105,6 @@ private fun StructuredMarkdownText(
     markdown: String,
     modifier: Modifier = Modifier,
     wrapsCodeBlockLines: Boolean = true,
-    isStreaming: Boolean,
-    streamedTextAnimationEnabled: Boolean,
 ) {
     val plainTextChunks = remember(markdown) { markdownPlainTextChunksForLargeContent(markdown) }
     if (plainTextChunks != null) {
@@ -150,8 +136,6 @@ private fun StructuredMarkdownText(
         MarkdownAndroidView(
             markdown = (segments.single() as MarkdownSegment.Markdown).text,
             modifier = modifier,
-            isStreaming = isStreaming,
-            streamedTextAnimationEnabled = streamedTextAnimationEnabled,
         )
         return
     }
@@ -165,8 +149,6 @@ private fun StructuredMarkdownText(
                     if (segment.text.isNotBlank()) {
                         MarkdownAndroidView(
                             markdown = segment.text,
-                            isStreaming = isStreaming,
-                            streamedTextAnimationEnabled = streamedTextAnimationEnabled,
                         )
                     }
                 }
@@ -185,7 +167,6 @@ private fun StreamingStructuredMarkdown(
     markdown: String,
     modifier: Modifier,
     wrapsCodeBlockLines: Boolean,
-    streamedTextAnimationEnabled: Boolean,
 ) {
     val latestMarkdown by rememberUpdatedState(markdown)
     var renderedMarkdown by remember { mutableStateOf(markdown) }
@@ -202,8 +183,6 @@ private fun StreamingStructuredMarkdown(
                 StructuredMarkdownText(
                     markdown = chunk.text,
                     wrapsCodeBlockLines = wrapsCodeBlockLines,
-                    isStreaming = false,
-                    streamedTextAnimationEnabled = false,
                 )
             }
         }
@@ -211,16 +190,12 @@ private fun StreamingStructuredMarkdown(
             StructuredMarkdownText(
                 markdown = segments.activeMarkdown,
                 wrapsCodeBlockLines = wrapsCodeBlockLines,
-                isStreaming = true,
-                streamedTextAnimationEnabled = streamedTextAnimationEnabled,
             )
         }
     }
 }
 
 private const val STREAM_RENDER_INTERVAL_MILLIS = 100L
-private const val STREAMING_SUFFIX_FADE_DURATION_MILLIS = 220L
-private const val STREAMING_SUFFIX_START_ALPHA = 72
 private const val MAX_STRUCTURED_MARKDOWN_CHARACTERS = 80_000
 private const val PLAIN_TEXT_CHUNK_CHARACTERS = 16_000
 
@@ -258,8 +233,6 @@ internal fun markdownPlainTextChunks(markdown: String, maximumCharacters: Int): 
 private fun MarkdownAndroidView(
     markdown: String,
     modifier: Modifier = Modifier,
-    isStreaming: Boolean = false,
-    streamedTextAnimationEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
@@ -334,28 +307,14 @@ private fun MarkdownAndroidView(
                     ?: StreamingMarkdownViewState().also { textView.tag = it }
                 val nextText = parsed.toString()
                 if (viewState.renderer === renderer && viewState.renderedText == nextText) return@let
-                viewState.animator?.cancel()
-                val suffixStart = streamingSuffixStart(viewState.previousText, nextText)
-                val spannable = SpannableStringBuilder(parsed)
                 try {
-                    renderer.setParsedMarkdown(textView, spannable)
+                    renderer.setParsedMarkdown(textView, SpannableStringBuilder(parsed))
                 } catch (_: Exception) {
                     textView.text = markdown
-                    viewState.previousText = markdown
                     viewState.renderedText = markdown
                     viewState.renderer = null
                     return@let
                 }
-                val displayedText = textView.text as? Spannable ?: spannable
-                if (
-                    isStreaming &&
-                    streamedTextAnimationEnabled &&
-                    ValueAnimator.areAnimatorsEnabled() &&
-                    suffixStart < displayedText.length
-                ) {
-                    animateStreamingSuffix(textView, displayedText, suffixStart, textColor, viewState)
-                }
-                viewState.previousText = nextText
                 viewState.renderedText = nextText
                 viewState.renderer = renderer
             }
@@ -369,62 +328,9 @@ private sealed interface MarkdownRenderState {
     data class Rendered(val markdown: Spanned) : MarkdownRenderState
 }
 
-internal fun streamingSuffixStart(previous: String, current: String): Int {
-    val limit = minOf(previous.length, current.length)
-    var index = 0
-    while (index < limit && previous[index] == current[index]) index += 1
-    if (
-        index in 1 until current.length &&
-        current[index - 1].isHighSurrogate() &&
-        current[index].isLowSurrogate()
-    ) {
-        index -= 1
-    }
-    return index
-}
-
-private fun animateStreamingSuffix(
-    textView: TextView,
-    text: Spannable,
-    start: Int,
-    baseColor: Int,
-    state: StreamingMarkdownViewState,
-) {
-    var span: ForegroundColorSpan? = null
-    val animator = ValueAnimator.ofInt(STREAMING_SUFFIX_START_ALPHA, 255).apply {
-        duration = STREAMING_SUFFIX_FADE_DURATION_MILLIS
-        addUpdateListener { animation ->
-            span?.let(text::removeSpan)
-            val alpha = animation.animatedValue as Int
-            span = ForegroundColorSpan((baseColor and 0x00FFFFFF) or (alpha shl 24)).also { colorSpan ->
-                text.setSpan(colorSpan, start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-            textView.invalidate()
-        }
-        addListener(object : android.animation.AnimatorListenerAdapter() {
-            private var finished = false
-
-            private fun finish(animation: android.animation.Animator) {
-                if (finished) return
-                finished = true
-                span?.let(text::removeSpan)
-                textView.invalidate()
-                if (state.animator === animation) state.animator = null
-            }
-
-            override fun onAnimationEnd(animation: android.animation.Animator) = finish(animation)
-            override fun onAnimationCancel(animation: android.animation.Animator) = finish(animation)
-        })
-    }
-    state.animator = animator
-    animator.start()
-}
-
 private data class StreamingMarkdownViewState(
-    var previousText: String = "",
     var renderedText: String = "",
     var renderer: Markwon? = null,
-    var animator: ValueAnimator? = null,
 )
 
 private object MarkdownRendererCache {
@@ -572,8 +478,14 @@ private fun CodeText(
     content: String,
     modifier: Modifier = Modifier,
 ) {
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val addedArgb = if (isDark) 0xFF7BC98AL else 0xFF1B7A34L
+    val removedArgb = MaterialTheme.colorScheme.error.toArgb()
+    val annotated = remember(content, addedArgb, removedArgb) {
+        TranscriptDiffColors.annotated(content, addedArgb.toInt(), removedArgb)
+    }
     Text(
-        text = content.ifEmpty { " " },
+        text = annotated.ifEmpty { AnnotatedString(" ") },
         modifier = modifier,
         style = MaterialTheme.typography.bodySmall.copy(
             fontFamily = FontFamily.Monospace,
